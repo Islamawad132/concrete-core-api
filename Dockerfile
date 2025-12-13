@@ -30,6 +30,9 @@ RUN npm ci --only=production && npm cache clean --force
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy source files for swagger-jsdoc to parse JSDoc comments
+COPY --from=builder /app/src ./src
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
