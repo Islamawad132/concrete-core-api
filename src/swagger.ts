@@ -64,8 +64,8 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: 'http://localhost:3000',
-        description: 'Development server',
+        url: process.env.API_URL || 'http://localhost:3000',
+        description: process.env.API_URL ? 'Production server' : 'Development server',
       },
     ],
     tags: [
