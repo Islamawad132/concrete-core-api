@@ -14,7 +14,7 @@ app.use(express.json());
 // Swagger documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Concrete Core Calculator API - حاسبة القلب الخرساني',
+  customSiteTitle: 'معهد بحوث مواد البناء و ضبط الجودة - API',
 }));
 
 // API routes
@@ -28,18 +28,18 @@ app.get('/', (_req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`
-╔════════════════════════════════════════════════════════════════╗
-║     Concrete Core Test Calculator API - حاسبة القلب الخرساني    ║
-╠════════════════════════════════════════════════════════════════╣
-║  Server running at: http://localhost:${PORT}                      ║
-║  Swagger docs at:   http://localhost:${PORT}/api-docs              ║
-╠════════════════════════════════════════════════════════════════╣
-║  Endpoints:                                                    ║
-║  - POST /api/calculate        - Single core calculation        ║
-║  - POST /api/calculate/batch  - Batch calculation              ║
-║  - GET  /api/reference/*      - Reference tables               ║
-║  - GET  /api/health           - Health check                   ║
-╚════════════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════════╗
+║     المركز القومي لبحوث الاسكان والبناء - HBRC                         ║
+║     معهد بحوث مواد البناء و ضبط الجودة                                ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  Server running at: http://localhost:${PORT}                            ║
+║  Swagger docs at:   http://localhost:${PORT}/api-docs                    ║
+╠══════════════════════════════════════════════════════════════════════╣
+║  Endpoints:                                                          ║
+║  - POST /api/calculate/batch         - Core Test (اختبار القلب)        ║
+║  - POST /api/pulloff/calculate/batch - Pull-Off Test (اختبار الإقتلاع) ║
+║  - GET  /api/health                  - Health check                  ║
+╚══════════════════════════════════════════════════════════════════════╝
   `);
 });
 

@@ -22,7 +22,7 @@ const sample1: CoreSampleInput = {
   diameters: [93, 93],
   lengths: [122, 120, 122],
   weightGrams: 1835, // Q11
-  density: 2.5, // Q18 - user provided for formula
+  directionFactor: 2.5, // معامل اتجاه أخذ العينة
   breakingLoadKN: 68.4, // Q19 - in kN (converted to 6.84 tons)
   aggregateCondition: 'dry', // جافة
 };
@@ -33,7 +33,7 @@ const sample2: CoreSampleInput = {
   diameters: [93, 93],
   lengths: [116, 116, 115], // avg = 115.67
   weightGrams: 1770, // Correct from Excel R11
-  density: 2.5,
+  directionFactor: 2.5, // معامل اتجاه أخذ العينة
   breakingLoadKN: 63.6, // 6.36 tons
   aggregateCondition: 'dry',
   reinforcement: [
@@ -47,7 +47,7 @@ const sample3: CoreSampleInput = {
   diameters: [93, 93],
   lengths: [112, 114, 113], // avg = 113
   weightGrams: 1433, // Correct from Excel S11
-  density: 2.5,
+  directionFactor: 2.5, // معامل اتجاه أخذ العينة
   breakingLoadKN: 32.8, // 3.28 tons
   aggregateCondition: 'dry',
 };
@@ -68,7 +68,7 @@ console.log(`  Diameters: ${sample1.diameters.join(', ')} mm`);
 console.log(`  Lengths: ${sample1.lengths.join(', ')} mm`);
 console.log(`  Weight: ${sample1.weightGrams} g`);
 console.log(`  Breaking Load: ${sample1.breakingLoadKN} kN`);
-console.log(`  Density (user): ${sample1.density} g/cm³`);
+console.log(`  Direction Factor (معامل اتجاه): ${sample1.directionFactor}`);
 console.log(`  Condition: ${sample1.aggregateCondition}`);
 
 console.log('\nResult (matching Excel G column):');
@@ -117,7 +117,7 @@ const sampleWithRebar: CoreSampleInput = {
   diameters: [100, 100],
   lengths: [200, 200],
   breakingLoadKN: 100, // 10 tons
-  density: 2.4,
+  directionFactor: 2.5, // معامل اتجاه أخذ العينة
   aggregateCondition: 'natural',
   reinforcement: [
     { diameterMm: 10, distanceFromEndMm: 50 },

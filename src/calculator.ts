@@ -16,6 +16,10 @@ import {
   BatchCalculationResult,
   LDCorrectionTable,
   MoistureCorrectionTable,
+  PullOffSampleInput,
+  PullOffSampleResult,
+  PullOffBatchResult,
+  PullOffUncertainty,
 } from './types';
 
 /**
@@ -76,19 +80,42 @@ function linearInterpolate(x: number, x1: number, x2: number, y1: number, y2: nu
 }
 
 /**
+ * Rounds to the nearest standard core diameter for Fg lookup
+ * Standard diameters: 50, 75, 100, 125, 150 mm
+ * This matches Excel behavior which uses "قطر العينة الاسمى" (nominal diameter)
+ */
+function roundToNearestStandardDiameter(diameterMm: number): number {
+  const standardDiameters = [50, 75, 100, 125, 150];
+  let nearest = standardDiameters[0];
+  let minDiff = Math.abs(diameterMm - nearest);
+
+  for (const std of standardDiameters) {
+    const diff = Math.abs(diameterMm - std);
+    if (diff < minDiff) {
+      minDiff = diff;
+      nearest = std;
+    }
+  }
+  return nearest;
+}
+
+/**
  * Calculates Fg (cutting correction factor) using bilinear interpolation
  * Based on core diameter and core strength
- * 
- * @param diameterMm - Core diameter in mm
+ *
+ * Note: Uses nearest standard diameter (50, 75, 100, 125, 150) for lookup
+ * to match Excel behavior with "قطر العينة الاسمى" (nominal diameter)
+ *
+ * @param diameterMm - Core diameter in mm (will be rounded to nearest standard)
  * @param strengthMPa - Core strength in MPa (N/mm²)
  * @returns Fg correction factor
  */
 export function calculateFgCorrectionFactor(diameterMm: number, strengthMPa: number): number {
   // Clamp strength to table range (use 15 for anything below)
   const clampedStrength = Math.max(15, Math.min(35, strengthMPa));
-  
-  // Clamp diameter to table range
-  const clampedDiameter = Math.max(50, Math.min(150, diameterMm));
+
+  // Round to nearest standard diameter (matches Excel nominal diameter approach)
+  const clampedDiameter = roundToNearestStandardDiameter(diameterMm);
   
   // Find diameter interval
   let dLowerIdx = 0;
@@ -326,26 +353,27 @@ export function calculateCoreSample(input: CoreSampleInput): CoreSampleResult {
   
   // Convert breaking load from kN to tons (G29 = Q19/10)
   const breakingLoadTons = convertKNtoTons(input.breakingLoadKN);
-  
-  // Calculate density from weight if provided, otherwise use provided density (G28)
+
+  // Calculate density from weight for display (G29 - not used in formula)
   let calculatedDensity: number;
   if (input.weightGrams) {
     calculatedDensity = calculateDensity(input.weightGrams, averageDiameter, averageLength);
-  } else if (input.density) {
-    calculatedDensity = input.density;
   } else {
-    // Default typical concrete density
+    // Default typical concrete density for display
     calculatedDensity = 2.4;
   }
-  
-  // Density used in final formula (Q18 - user provided, or calculated)
-  const densityForFormula = input.density ?? calculatedDensity;
+
+  // Direction factor (معامل اتجاه أخذ العينة) - user input, used in final formula
+  // Typical values: 2.5 (horizontal coring), 2.3 (vertical coring)
+  const directionFactor = input.directionFactor;
   
   // Calculate core strength (G31) in kg/cm²
   const coreStrength = calculateCoreStrength(breakingLoadTons, averageDiameter);
   
-  // Convert core strength to MPa for Fg lookup (1 kg/cm² = 0.0980665 MPa)
-  const coreStrengthMPa = coreStrength * 0.0980665;
+  // Convert core strength to MPa for Fg lookup
+  // Note: Excel uses simple division by 10 (G32/10), not exact factor
+  // Using same approach to match Excel: kg/cm² ÷ 10 ≈ MPa
+  const coreStrengthMPa = coreStrength / 10;
   
   // Get correction factors
   const moistureCorrectionFactor = getMoistureCorrectionFactor(input.aggregateCondition);
@@ -360,15 +388,16 @@ export function calculateCoreSample(input: CoreSampleInput): CoreSampleResult {
     averageLength
   );
   
-  // Calculate equivalent cube strength using the Excel formula (G38)
-  // G38 = G31 * G32 * G33 * (Q18 / (1.5 + G26/G27)) * reinforcement_factor
-  const densityFactor = densityForFormula / (1.5 + averageDiameter / averageLength);
+  // Calculate equivalent cube strength using the Excel formula (G39)
+  // G39 = G32 * G33 * G34 * (Q19 / (1.5 + G27/G28)) * reinforcement_factor
+  // Where Q19 = معامل اتجاه أخذ العينة (direction factor, typically 2.5)
+  const directionFactorComponent = directionFactor / (1.5 + averageDiameter / averageLength);
   
-  const equivalentCubeStrength = 
-    coreStrength * 
-    moistureCorrectionFactor * 
-    cuttingCorrectionFactor * 
-    densityFactor * 
+  const equivalentCubeStrength =
+    coreStrength *
+    moistureCorrectionFactor *
+    cuttingCorrectionFactor *
+    directionFactorComponent *
     reinforcementCorrectionFactor;
   
   // Convert to MPa (1 kg/cm² = 0.0980665 MPa)
@@ -432,4 +461,238 @@ export function getLDCorrectionTable(): LDCorrectionTable[] {
  */
 export function getMoistureCorrectionTable(): MoistureCorrectionTable[] {
   return [...MOISTURE_CORRECTION_TABLE];
+}
+
+// =====================================================
+// Pull-Off Test Calculator (اختبار الإقتلاع)
+// Based on BS 1881-Part 207-1992
+// =====================================================
+
+/**
+ * Calculates the circular area from diameter
+ * المساحة = π × (القطر/2)²
+ *
+ * @param diameterMm - Diameter in mm
+ * @returns Area in mm²
+ */
+export function calculateCircularArea(diameterMm: number): number {
+  const radius = diameterMm / 2;
+  return Math.PI * radius * radius;
+}
+
+/**
+ * Calculates tensile adhesion strength (Pull-Off stress)
+ *
+ * Formula: Stress (MPa) = Load (N) / Area (mm²)
+ * Or equivalently: Stress = 4 × Load / (π × D²)
+ *
+ * From Excel verification:
+ * Sample 1: D=55mm, Load=3.63KN=3630N
+ * Area = π × (55/2)² = 2375.83 mm²
+ * Stress = 3630 / 2375.83 = 1.528 MPa ✓
+ *
+ * @param loadN - Failure load in Newtons
+ * @param diameterMm - Specimen diameter in mm
+ * @returns Tensile adhesion strength in MPa (N/mm²)
+ */
+export function calculateTensileStrength(loadN: number, diameterMm: number): number {
+  const area = calculateCircularArea(diameterMm);
+  return loadN / area;
+}
+
+/**
+ * Calculates a single Pull-Off test specimen result
+ *
+ * @param input - Pull-Off sample input data
+ * @returns Pull-Off sample result
+ */
+export function calculatePullOffSample(input: PullOffSampleInput): PullOffSampleResult {
+  // Convert kN to N
+  const failureLoadN = input.failureLoadKN * 1000;
+
+  // Calculate area
+  const areaMm2 = calculateCircularArea(input.diameterMm);
+
+  // Calculate tensile adhesion strength
+  const tensileStrengthMPa = calculateTensileStrength(failureLoadN, input.diameterMm);
+
+  return {
+    specimenNumber: input.specimenNumber,
+    specimenCode: input.specimenCode,
+    testedItem: input.testedItem,
+    diameterMm: input.diameterMm,
+    failureMode: input.failureMode,
+    failureLoadKN: input.failureLoadKN,
+    failureLoadN,
+    areaMm2,
+    tensileStrengthMPa,
+  };
+}
+
+/**
+ * Calculates standard deviation of an array of numbers
+ *
+ * @param values - Array of numbers
+ * @returns Standard deviation
+ */
+function calculateStandardDeviation(values: number[]): number {
+  const n = values.length;
+  if (n < 2) return 0;
+
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const squaredDiffs = values.map(v => Math.pow(v - mean, 2));
+  const variance = squaredDiffs.reduce((a, b) => a + b, 0) / (n - 1); // Sample variance
+  return Math.sqrt(variance);
+}
+
+/**
+ * Calculates uncertainty for Pull-Off test
+ * Based on the Excel calculations in the "SHEET" tab
+ * Matches Excel output: UA=0.174, UB=0.026, Ucomp=0.176, Expanded=0.352 MPa
+ *
+ * @param results - Array of sample results
+ * @param diameters - Array of all diameter measurements
+ * @param loads - Array of all load measurements in N
+ * @returns Uncertainty components
+ */
+export function calculatePullOffUncertainty(
+  results: PullOffSampleResult[],
+  diameters: number[],
+  loads: number[]
+): PullOffUncertainty {
+  const n = results.length;
+
+  // Calculate statistics
+  const strengths = results.map(r => r.tensileStrengthMPa);
+  const averageStrength = strengths.reduce((a, b) => a + b, 0) / n;
+  const averageDiameter = diameters.reduce((a, b) => a + b, 0) / diameters.length;
+  const averageLoad = loads.reduce((a, b) => a + b, 0) / loads.length;
+
+  const diameterSD = calculateStandardDeviation(diameters);
+  const loadSD = calculateStandardDeviation(loads);
+
+  // From Excel SHEET tab:
+  // Favg (Mpa) = 4Pavg / A = 1.5772913357235356
+  //
+  // Sensitivity coefficients from Excel:
+  // CP = 0.0004351194020674881 (∂σ/∂P)
+  // CD = -0.05827515936472429 (∂σ/∂D)
+  const area = calculateCircularArea(averageDiameter);
+  const Cp = 4 / (Math.PI * averageDiameter * averageDiameter); // = 1/Area in mm²
+  const CD = -2 * averageStrength / averageDiameter;
+
+  // From Excel uncertainty table:
+  // Load uncertainties (in N):
+  // Excel uses SD/sqrt(3) for repeatability uncertainty
+  const uncertaintyRepeatabilityLoad = loadSD / Math.sqrt(3); // URep = SD/√3 = 360.38 N
+  const uncertaintyCalibrationLoad = 104.5 / 2; // Ucal = 104.5/2 = 52.25 N
+  const uncertaintyResolutionLoad = 50 / Math.sqrt(3); // URes = 50/√3 = 28.87 N
+
+  // Diameter uncertainties (in mm):
+  // Excel uses SD/sqrt(3) for repeatability uncertainty
+  const uncertaintyRepeatabilityDiameter = diameterSD / Math.sqrt(3); // URep = SD/√3 = 1.296 mm
+  const uncertaintyCalibrationDiameter = 0.007378583333333333 / 2; // Ucal/2
+  const uncertaintyResolutionDiameter = 0.01 / Math.sqrt(3); // 0.01/√3
+
+  // Calculate (Ui × Ci)² for each source
+  // Load contributions to uncertainty in stress
+  const uLoadRep_contrib = uncertaintyRepeatabilityLoad * Cp;
+  const uLoadCal_contrib = uncertaintyCalibrationLoad * Cp;
+  const uLoadRes_contrib = uncertaintyResolutionLoad * Cp;
+
+  // Diameter contributions
+  const uDiamRep_contrib = uncertaintyRepeatabilityDiameter * Math.abs(CD);
+  const uDiamCal_contrib = uncertaintyCalibrationDiameter * Math.abs(CD);
+  const uDiamRes_contrib = uncertaintyResolutionDiameter * Math.abs(CD);
+
+  // Type A uncertainty (from repeatability of measurements)
+  // UA² = (uLoadRep × Cp)² + (uDiamRep × |CD|)²
+  const uncertaintyTypeA = Math.sqrt(
+    Math.pow(uLoadRep_contrib, 2) + Math.pow(uDiamRep_contrib, 2)
+  );
+
+  // Type B uncertainty (from calibration and resolution)
+  const uncertaintyTypeB = Math.sqrt(
+    Math.pow(uLoadCal_contrib, 2) + Math.pow(uLoadRes_contrib, 2) +
+    Math.pow(uDiamCal_contrib, 2) + Math.pow(uDiamRes_contrib, 2)
+  );
+
+  // Combined standard uncertainty
+  const combinedUncertainty = Math.sqrt(
+    Math.pow(uncertaintyTypeA, 2) + Math.pow(uncertaintyTypeB, 2)
+  );
+
+  // Expanded uncertainty at 95% confidence (k = 2)
+  const expandedUncertainty = 2 * combinedUncertainty;
+
+  return {
+    diameterSD,
+    averageDiameter,
+    loadSD,
+    averageLoad,
+    averageStrength,
+    uncertaintyRepeatabilityDiameter,
+    uncertaintyCalibrationDiameter,
+    uncertaintyResolutionDiameter,
+    uncertaintyRepeatabilityLoad,
+    uncertaintyCalibrationLoad,
+    uncertaintyResolutionLoad,
+    uncertaintyTypeA,
+    uncertaintyTypeB,
+    combinedUncertainty,
+    expandedUncertainty,
+  };
+}
+
+/**
+ * Calculates batch of Pull-Off test specimens with statistics
+ * Matches Excel calculations exactly
+ *
+ * @param specimens - Array of Pull-Off sample inputs
+ * @returns Batch calculation results with statistics and uncertainty
+ */
+export function calculatePullOffBatch(specimens: PullOffSampleInput[]): PullOffBatchResult {
+  // Calculate individual results
+  const results = specimens.map(calculatePullOffSample);
+
+  // Extract values for statistics
+  const strengths = results.map(r => r.tensileStrengthMPa);
+  const diameters = specimens.map(s => s.diameterMm);
+  const loadsKN = specimens.map(s => s.failureLoadKN);
+  const loadsN = specimens.map(s => s.failureLoadKN * 1000);
+
+  const n = strengths.length;
+
+  // Calculate statistics
+  const averageStrength = strengths.reduce((a, b) => a + b, 0) / n;
+  const minimumStrength = Math.min(...strengths);
+  const maximumStrength = Math.max(...strengths);
+
+  // Average load in KN (متوسط الحمل)
+  const averageLoadKN = loadsKN.reduce((a, b) => a + b, 0) / n;
+
+  // Standard deviation of LOADS (not strengths) - this matches Excel
+  const loadSD = calculateStandardDeviation(loadsKN);
+
+  // Coefficient of variation from LOADS (%) - Excel formula: SD(loads) / AVG(loads) * 100
+  // This gives 17.23% matching Excel exactly
+  const coefficientOfVariation = (loadSD / averageLoadKN) * 100;
+
+  // Standard deviation of strengths (for reference)
+  const standardDeviation = calculateStandardDeviation(strengths);
+
+  // Calculate uncertainty
+  const uncertainty = calculatePullOffUncertainty(results, diameters, loadsN);
+
+  return {
+    results,
+    averageStrength,
+    averageLoadKN,
+    minimumStrength,
+    maximumStrength,
+    standardDeviation,
+    coefficientOfVariation,
+    uncertainty,
+    expandedUncertaintyMPa: uncertainty.expandedUncertainty,
+  };
 }

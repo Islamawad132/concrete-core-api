@@ -1,15 +1,9 @@
 import { Router, Request, Response } from 'express';
 import {
-  calculateCoreSample,
   calculateBatch,
-  getLDCorrectionTable,
-  getMoistureCorrectionTable,
-  calculateLDCorrectionFactor,
-  getMoistureCorrectionFactor,
-  calculateFgCorrectionFactor,
-  getFgCorrectionTable,
+  calculatePullOffBatch,
 } from './calculator';
-import { CoreSampleInput, AggregateCondition } from './types';
+import { CoreSampleInput, AggregateCondition, PullOffSampleInput } from './types';
 
 const router = Router();
 
@@ -48,38 +42,62 @@ const router = Router();
  *         - lengths
  *         - breakingLoadKN
  *         - aggregateCondition
+ *         - directionFactor
  *       properties:
  *         sampleNumber:
  *           type: string
- *           description: رقم العينة - Sample identifier
+ *           description: |
+ *             رقم العينة - Sample identifier
+ *             ⚪ **اختياري (Optional)**
  *           example: "1"
  *         testedElement:
  *           type: string
- *           description: 1- العنصر المختبر - Structural element being tested
+ *           description: |
+ *             1- العنصر المختبر - Structural element being tested
+ *             ⚪ **اختياري (Optional)**
  *           example: "خرسانة أعمدة - مبني المدخل"
  *         visualCondition:
  *           type: string
- *           description: 2- الحالة الظاهرية للعينة - Visual condition (voids, cracks)
- *           example: "متجانسة"
+ *           description: |
+ *             2- الحالة الظاهرية للعينة - Visual condition (voids, cracks)
+ *             ⚪ **اختياري (Optional)**
+ *           example: "متجانسة ويوجد بها فراغات صغيرة"
  *         aggregateType:
  *           type: string
  *           enum: [gravel, crushed, lightweight]
- *           description: 3- نوع الركام - Aggregate type (زلط/دولوميت/خفيف)
+ *           description: |
+ *             3- نوع الركام - Aggregate type
+ *             ⚪ **اختياري (Optional)**
+ *             - gravel: زلط
+ *             - crushed: دولوميت / كسر أحجار
+ *             - lightweight: خفيف
  *         coringDate:
  *           type: string
- *           description: 4- تاريخ اخذ القلب - Date core was extracted
+ *           description: |
+ *             4- تاريخ اخذ القلب - Date core was extracted
+ *             ⚪ **اختياري (Optional)**
  *           example: "19/8/2025"
  *         testingDate:
  *           type: string
- *           description: 5- تاريخ إختبار القلب - Date core was tested
+ *           description: |
+ *             5- تاريخ إختبار القلب - Date core was tested
+ *             ⚪ **اختياري (Optional)**
  *           example: "26/08/2025"
  *         curingAgeDays:
  *           type: string
- *           description: 6- عمر المعالجة بالغمر فى الماء عند الإختبار (يوم)
+ *           description: |
+ *             6- عمر المعالجة بالغمر فى الماء عند الإختبار (يوم)
+ *             ⚪ **اختياري (Optional)**
+ *           example: "2"
  *         endPreparation:
  *           type: string
  *           enum: [sulfur_capping, grinding, neoprene_pads]
- *           description: 7- طريقة إعداد نهاية العينة (تغطية بالكبريت/تسوية بالجلخ)
+ *           description: |
+ *             7- طريقة إعداد نهاية العينة
+ *             ⚪ **اختياري (Optional)**
+ *             - sulfur_capping: تغطية بالكبريت
+ *             - grinding: تسوية بالجلخ
+ *             - neoprene_pads: وسائد نيوبرين
  *         diameters:
  *           type: array
  *           items:
@@ -87,8 +105,9 @@ const router = Router();
  *           minItems: 2
  *           maxItems: 2
  *           description: |
- *             8- القطر - Two perpendicular diameter measurements in mm.
- *             Measured at right angles to ensure accuracy.
+ *             8- القطر - Two perpendicular diameter measurements in mm
+ *             🔴 **مطلوب (Required)**
+ *             قياسان متعامدان للقطر بالمليمتر
  *           example: [93, 93]
  *         lengths:
  *           type: array
@@ -97,41 +116,54 @@ const router = Router();
  *           minItems: 2
  *           maxItems: 3
  *           description: |
- *             9- الطول - Length measurements in mm after capping.
- *             Typically 2-3 measurements are taken.
+ *             9- الطول - Length measurements in mm after capping (2-3 readings)
+ *             🔴 **مطلوب (Required)**
+ *             من 2 إلى 3 قراءات للطول بالمليمتر
  *           example: [122, 120, 122]
  *         weightGrams:
  *           type: number
  *           description: |
- *             الوزن بالجرام - Weight in grams (used to calculate density).
- *             If provided, density is calculated automatically.
+ *             الوزن بالجرام - Weight in grams (for calculating display density)
+ *             ⚪ **اختياري (Optional)** - لحساب الكثافة للعرض فقط
  *           example: 1835
- *         density:
+ *         directionFactor:
  *           type: number
  *           description: |
- *             10- كثافة القلب الخرساني (جم/سم3) - Can be provided directly.
- *             Normal concrete: 2.3-2.5 g/cm³. Used in final strength formula.
+ *             معامل اتجاه أخذ العينة - Coring direction factor
+ *             🔴 **مطلوب (Required)**
+ *             - 2.5 = أفقي (horizontal coring)
+ *             - 2.3 = رأسي (vertical coring)
  *           example: 2.5
  *         breakingLoadKN:
  *           type: number
  *           description: |
- *             11- حمل الكسر (kN) - Breaking load in kiloNewtons.
- *             This is the maximum load at which the core fails.
- *             Converted internally to tons (÷10).
+ *             11- حمل الكسر (كيلو نيوتن) - Breaking load in kN
+ *             🔴 **مطلوب (Required)**
+ *             أقصى حمل عند انهيار العينة
  *           example: 68.4
  *         failurePattern:
  *           type: string
- *           description: 12- شكل الإنهيار - Failure pattern description
+ *           description: |
+ *             12- شكل الإنهيار - Failure pattern description
+ *             ⚪ **اختياري (Optional)**
  *           example: "شروخ طولية"
  *         aggregateCondition:
- *           $ref: '#/components/schemas/AggregateCondition'
+ *           type: string
+ *           enum: [dry, natural, saturated]
+ *           description: |
+ *             14- حالة رطوبة القلب - Moisture condition
+ *             🔴 **مطلوب (Required)**
+ *             - dry (جافة): معامل = 0.96
+ *             - natural (طبيعية): معامل = 1.00
+ *             - saturated (مشبعة): معامل = 1.05
  *         reinforcement:
  *           type: array
  *           items:
  *             $ref: '#/components/schemas/ReinforcementBar'
  *           description: |
- *             16- مقاس ومكان حديد التسليح بالعينة - Reinforcement bars in sample.
- *             If bars are present, they affect the apparent strength.
+ *             16- مقاس ومكان حديد التسليح بالعينة
+ *             ⚪ **اختياري (Optional)**
+ *             إذا وجد حديد تسليح يؤثر على المقاومة الظاهرية
  * 
  *     CoreSampleResult:
  *       type: object
@@ -270,151 +302,215 @@ const router = Router();
 
 /**
  * @swagger
- * /api/calculate:
- *   post:
- *     summary: Calculate single core sample strength
- *     description: |
- *       Calculates the equivalent cube strength for a single concrete core sample.
- *       
- *       ## حساب مقاومة الضغط للقلب الخرساني الواحد
- *       
- *       This endpoint takes the measurements from a single core sample and returns:
- *       - Core compressive strength (مقاومة الضغط للقلب)
- *       - All correction factors applied
- *       - **Equivalent cube strength** (مقاومة الضغط المستنبطة للمكعب)
- *       
- *       ### Calculation Steps:
- *       1. Calculate average diameter from 2 measurements
- *       2. Calculate average length from 2-3 measurements
- *       3. Compute L/D ratio
- *       4. Calculate core strength from breaking load
- *       5. Apply all correction factors
- *       6. Compute equivalent 150mm cube strength
- *     tags: [Calculations]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/CoreSampleInput'
- *           examples:
- *             sample1:
- *               summary: Sample 1 from Excel (خرسانة أعمدة - مبني المدخل)
- *               value:
- *                 sampleNumber: 1
- *                 testedElement: "خرسانة أعمدة - مبني المدخل والمصافي"
- *                 aggregateType: "gravel"
- *                 coringDate: "19/8/2025"
- *                 testingDate: "26/08/2025"
- *                 endPreparation: "sulfur_capping"
- *                 diameters: [93, 93]
- *                 lengths: [122, 120, 122]
- *                 weightGrams: 1835
- *                 density: 2.5
- *                 breakingLoadKN: 68.4
- *                 aggregateCondition: "dry"
- *             sample2:
- *               summary: Sample 2 from Excel (minimal input)
- *               value:
- *                 diameters: [93, 93]
- *                 lengths: [116, 116, 115]
- *                 density: 2.5
- *                 breakingLoadKN: 63.6
- *                 aggregateCondition: "dry"
- *             withReinforcement:
- *               summary: Sample with reinforcement bars
- *               value:
- *                 diameters: [100, 100]
- *                 lengths: [200, 198]
- *                 weightGrams: 3700
- *                 density: 2.4
- *                 breakingLoadKN: 85
- *                 aggregateCondition: "natural"
- *                 reinforcement:
- *                   - diameterMm: 10
- *                     distanceFromEndMm: 50
- *     responses:
- *       200:
- *         description: Successful calculation
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/CoreSampleResult'
- *       400:
- *         description: Invalid input data
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-router.post('/calculate', (req: Request, res: Response) => {
-  try {
-    const input = validateCoreSampleInput(req.body);
-    const result = calculateCoreSample(input);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({
-      error: 'Invalid input',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * @swagger
  * /api/calculate/batch:
  *   post:
  *     summary: Calculate multiple core samples with statistics
  *     description: |
- *       Calculates equivalent cube strength for multiple core samples and provides
- *       statistical summary including average, min, max, and standard deviation.
- *       
  *       ## حساب مجموعة من عينات القلب الخرساني
- *       
- *       Useful for evaluating concrete quality across multiple samples from the same
- *       structural element or project.
- *       
- *       ### Statistical Analysis:
- *       - **Average strength**: Mean of all equivalent cube strengths
- *       - **Minimum strength**: Lowest strength value
- *       - **Maximum strength**: Highest strength value
- *       - **Standard deviation**: Measure of strength variability
- *     tags: [Calculations]
+ *
+ *       Calculates equivalent cube strength for multiple core samples based on **ECP 203-2020**.
+ *
+ *       ### الحقول المطلوبة | Required Fields:
+ *       | الحقل | الوصف |
+ *       |-------|-------|
+ *       | 🔴 diameters | القطر - قياسان متعامدان (مم) |
+ *       | 🔴 lengths | الطول - 2-3 قراءات (مم) |
+ *       | 🔴 breakingLoadKN | حمل الكسر (كيلو نيوتن) |
+ *       | 🔴 aggregateCondition | حالة رطوبة القلب (dry/natural/saturated) |
+ *       | 🔴 directionFactor | معامل اتجاه أخذ العينة (2.5 أفقي / 2.3 رأسي) |
+ *
+ *       ### المعادلة الأساسية:
+ *       ```
+ *       مقاومة المكعب = مقاومة القلب × Fm × Fg × (معامل_اتجاه / (1.5 + D/L)) × معامل التسليح
+ *       ```
+ *
+ *       ### Statistical Analysis | التحليل الإحصائي:
+ *       - **averageStrength**: متوسط المقاومة المستنبطة
+ *       - **minimumStrength**: أقل قيمة
+ *       - **maximumStrength**: أعلى قيمة
+ *       - **standardDeviation**: الانحراف المعياري
+ *     tags: [Core Test - اختبار القلب الخرساني]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             $ref: '#/components/schemas/BatchCalculationInput'
- *           example:
- *             projectName: "مبني المدخل والمخازن"
- *             testingDate: "26/08/2025"
- *             samples:
- *               - sampleNumber: 1
- *                 testedElement: "خرسانة أعمدة - مبني المدخل والمصافي"
- *                 diameters: [93, 93]
- *                 lengths: [122, 120, 122]
- *                 weightGrams: 1835
- *                 density: 2.5
- *                 breakingLoadKN: 68.4
- *                 aggregateCondition: "dry"
- *               - sampleNumber: 2
- *                 diameters: [93, 93]
- *                 lengths: [116, 116, 115]
- *                 weightGrams: 1770
- *                 density: 2.5
- *                 breakingLoadKN: 63.6
- *                 aggregateCondition: "dry"
- *                 reinforcement:
- *                   - diameterMm: 8
- *                     distanceFromEndMm: 43
- *               - sampleNumber: 3
- *                 diameters: [93, 93]
- *                 lengths: [112, 114, 113]
- *                 weightGrams: 1433
- *                 density: 2.5
- *                 breakingLoadKN: 32.8
- *                 aggregateCondition: "dry"
+ *           examples:
+ *             minimal:
+ *               summary: 🔴 الحد الأدنى (Required fields only)
+ *               description: فقط الحقول المطلوبة - diameters, lengths, breakingLoadKN, aggregateCondition, directionFactor
+ *               value:
+ *                 samples:
+ *                   - diameters: [93, 93]
+ *                     lengths: [121, 121, 121]
+ *                     breakingLoadKN: 142.32
+ *                     aggregateCondition: "saturated"
+ *                     directionFactor: 2.5
+ *                   - diameters: [93, 93]
+ *                     lengths: [122, 122, 122]
+ *                     breakingLoadKN: 114.78
+ *                     aggregateCondition: "saturated"
+ *                     directionFactor: 2.5
+ *                   - diameters: [93, 93]
+ *                     lengths: [135, 135, 135]
+ *                     breakingLoadKN: 88.25
+ *                     aggregateCondition: "saturated"
+ *                     directionFactor: 2.5
+ *             bordorat:
+ *               summary: 📊 بردورات - عينات مشبعة (Saturated samples)
+ *               description: مثال من ملف بردورات قلب خرساني - 3 عينات أعمدة مشبعة
+ *               value:
+ *                 projectName: "بردورات - عينات أعمدة"
+ *                 testingDate: "2024-09-15"
+ *                 samples:
+ *                   - sampleNumber: "1"
+ *                     testedElement: "عمود"
+ *                     visualCondition: "متجانسة ويوجد بها فراغات صغيرة وكبيرة"
+ *                     aggregateType: "gravel"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [121, 121, 121]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 142.32
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "saturated"
+ *                   - sampleNumber: "2"
+ *                     testedElement: "عمود"
+ *                     visualCondition: "متجانسة ويوجد بها فراغات صغيرة وكبيرة"
+ *                     aggregateType: "gravel"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [122, 122, 122]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 114.78
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "saturated"
+ *                   - sampleNumber: "3"
+ *                     testedElement: "عمود"
+ *                     visualCondition: "متجانسة ويوجد بها فراغات صغيرة وكبيرة"
+ *                     aggregateType: "gravel"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [135, 135, 135]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 88.25
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "saturated"
+ *             kharegi:
+ *               summary: 📊 خارجي - عينات جافة (Dry samples)
+ *               description: مثال من ملف خارجي قلب خرساني - 3 عينات أعمدة جافة
+ *               value:
+ *                 projectName: "مبني المدخل والمصافي"
+ *                 testingDate: "26/08/2025"
+ *                 samples:
+ *                   - sampleNumber: "1"
+ *                     testedElement: "خرسانة أعمدة - مبني المدخل والمصافي"
+ *                     visualCondition: "غير متجانسة ويوجد فراغات صغيرة وكبيرة ويوجد بها طفلة وتعشيش"
+ *                     aggregateType: "gravel"
+ *                     coringDate: "19/8/2025"
+ *                     testingDate: "26/08/2025"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [122, 120, 122]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 68.4
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "dry"
+ *                   - sampleNumber: "2"
+ *                     testedElement: "خرسانة أعمدة - مبني المدخل والمصافي"
+ *                     visualCondition: "غير متجانسة ويوجد فراغات صغيرة وكبيرة ويوجد بها طفلة"
+ *                     aggregateType: "gravel"
+ *                     coringDate: "19/8/2025"
+ *                     testingDate: "26/08/2025"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [116, 116, 115]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 63.6
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "dry"
+ *                   - sampleNumber: "3"
+ *                     testedElement: "خرسانة حائط - مبني المدخل والمصافي"
+ *                     visualCondition: "غير متجانسة ويوجد فراغات صغيرة وكبيرة"
+ *                     aggregateType: "gravel"
+ *                     coringDate: "19/8/2025"
+ *                     testingDate: "26/08/2025"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [112, 114, 113]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 32.8
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "dry"
+ *             mowarid:
+ *               summary: 📊 مورد - حوائط خرسانية (Concrete walls)
+ *               description: مثال من ملف مورد قلب خرساني - 3 عينات حوائط جافة (كسر أحجار)
+ *               value:
+ *                 projectName: "حوائط خرسانية"
+ *                 testingDate: "2025-08-20"
+ *                 samples:
+ *                   - sampleNumber: "4"
+ *                     testedElement: "حائط خرساني رقم (1)"
+ *                     visualCondition: "متجانسة ويوجد بها فراغات صغيرة وكبيرة"
+ *                     aggregateType: "crushed"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [119, 118, 119]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 268.1
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "dry"
+ *                   - sampleNumber: "5"
+ *                     testedElement: "حائط خرساني رقم (2)"
+ *                     visualCondition: "متجانسة ويوجد بها فراغات صغيرة وكبيرة"
+ *                     aggregateType: "crushed"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [115, 113, 115]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 237.5
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "dry"
+ *                   - sampleNumber: "6"
+ *                     testedElement: "حائط خرساني رقم (3)"
+ *                     visualCondition: "متجانسة ويوجد بها فراغات صغيرة وكبيرة"
+ *                     aggregateType: "crushed"
+ *                     endPreparation: "sulfur_capping"
+ *                     diameters: [93, 93]
+ *                     lengths: [120, 119, 120]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 269.9
+ *                     failurePattern: "شروخ طولية"
+ *                     aggregateCondition: "dry"
+ *             withReinforcement:
+ *               summary: 🔩 مع حديد تسليح (With reinforcement)
+ *               description: عينة تحتوي على حديد تسليح - يتم تطبيق معامل تصحيح
+ *               value:
+ *                 projectName: "عينات مع حديد تسليح"
+ *                 samples:
+ *                   - sampleNumber: "1"
+ *                     testedElement: "عمود خرساني"
+ *                     diameters: [93, 93]
+ *                     lengths: [116, 116, 115]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 63.6
+ *                     aggregateCondition: "dry"
+ *                     reinforcement:
+ *                       - diameterMm: 8
+ *                         distanceFromEndMm: 43
+ *                   - sampleNumber: "2"
+ *                     testedElement: "عمود خرساني"
+ *                     diameters: [93, 93]
+ *                     lengths: [120, 120, 120]
+ *                     directionFactor: 2.5
+ *                     breakingLoadKN: 75.0
+ *                     aggregateCondition: "dry"
+ *                     reinforcement:
+ *                       - diameterMm: 10
+ *                         distanceFromEndMm: 30
+ *                       - diameterMm: 10
+ *                         distanceFromEndMm: 85
  *     responses:
  *       200:
  *         description: Successful batch calculation
@@ -446,292 +542,281 @@ router.post('/calculate/batch', (req: Request, res: Response) => {
   }
 });
 
-/**
- * @swagger
- * /api/reference/ld-correction:
- *   get:
- *     summary: Get L/D ratio correction factor table
- *     description: |
- *       Returns the Length/Diameter ratio correction factor table.
- *       
- *       ## جدول معاملات تصحيح نسبة الطول للقطر
- *       
- *       When the L/D ratio is less than 2.0, the apparent strength is higher
- *       than the true strength. This table provides correction factors based
- *       on BS 1881 and ASTM C42 standards.
- *       
- *       For L/D ratios between table values, linear interpolation is used.
- *     tags: [Reference]
- *     responses:
- *       200:
- *         description: L/D correction factor table
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/LDCorrectionEntry'
- */
-router.get('/reference/ld-correction', (_req: Request, res: Response) => {
-  res.json(getLDCorrectionTable());
-});
+// =====================================================
+// Pull-Off Test Endpoints (اختبار الإقتلاع - تماسك طبقتين)
+// Based on BS 1881-Part 207-1992
+// =====================================================
 
 /**
  * @swagger
- * /api/reference/moisture-correction:
- *   get:
- *     summary: Get moisture correction factor table
- *     description: |
- *       Returns the moisture condition correction factor table.
- *       
- *       ## جدول معاملات تصحيح درجة الرطوبة
- *       
- *       The moisture condition of the core at the time of testing affects
- *       the measured strength:
- *       
- *       - **Dry cores** (جافة): Give higher apparent strength → multiply by 0.96
- *       - **Natural condition** (طبيعية): No correction needed → multiply by 1.00
- *       - **Saturated cores** (مشبعة): Give lower apparent strength → multiply by 1.05
- *     tags: [Reference]
- *     responses:
- *       200:
- *         description: Moisture correction factor table
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/MoistureCorrectionEntry'
- */
-router.get('/reference/moisture-correction', (_req: Request, res: Response) => {
-  res.json(getMoistureCorrectionTable());
-});
-
-/**
- * @swagger
- * /api/reference/ld-factor/{ldRatio}:
- *   get:
- *     summary: Calculate L/D correction factor for specific ratio
- *     description: |
- *       Calculates the L/D correction factor for a specific Length/Diameter ratio
- *       using linear interpolation between table values.
- *       
- *       ## حساب معامل تصحيح نسبة الطول للقطر
- *     tags: [Reference]
- *     parameters:
- *       - in: path
- *         name: ldRatio
- *         required: true
- *         schema:
+ * components:
+ *   schemas:
+ *     PullOffSampleInput:
+ *       type: object
+ *       required:
+ *         - diameterMm
+ *         - failureLoadKN
+ *       properties:
+ *         specimenNumber:
  *           type: number
- *           minimum: 1.0
- *           maximum: 3.5
- *         description: Length/Diameter ratio (نسبة الطول للقطر)
- *         example: 1.3
- *     responses:
- *       200:
- *         description: Calculated correction factor
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 ldRatio:
- *                   type: number
- *                 correctionFactor:
- *                   type: number
- *       400:
- *         description: Invalid L/D ratio
+ *           description: |
+ *             رقم العينة - Specimen number
+ *             ⚪ **اختياري (Optional)**
+ *           example: 1
+ *         specimenCode:
+ *           type: string
+ *           description: |
+ *             كود العينة - Specimen code
+ *             ⚪ **اختياري (Optional)**
+ *           example: "MTL/IT/2024/37"
+ *         testedItem:
+ *           type: string
+ *           description: |
+ *             العنصر المختبر - Tested item/element
+ *             ⚪ **اختياري (Optional)**
+ *           example: "العنصر المختبر بلاطة خرسانية"
+ *         diameterMm:
+ *           type: number
+ *           description: |
+ *             قطر العينة (مم) - Specimen diameter in mm
+ *             🔴 **مطلوب (Required)**
+ *           example: 55
+ *         failureMode:
+ *           type: string
+ *           description: |
+ *             مكان الإنهيار - Mode/location of failure
+ *             ⚪ **اختياري (Optional)**
+ *             - concrete_substrate: حدث الإنفصال في البلاطة الخرسانية
+ *             - adhesive_layer: حدث الإنفصال في المادة اللاصقة
+ *             - interface: حدث الإنفصال في السطح البيني
+ *             - overlay: حدث الإنفصال في الطبقة العلوية
+ *             - mixed: إنفصال مختلط
+ *           example: "حدث الإنفصال في البلاطة الخرسانية"
+ *         failureLoadKN:
+ *           type: number
+ *           description: |
+ *             حمل الإنهيار (كيلو نيوتن) - Failure load in kN
+ *             🔴 **مطلوب (Required)**
+ *           example: 3.63
+ *
+ *     PullOffSampleResult:
+ *       type: object
+ *       properties:
+ *         specimenNumber:
+ *           type: number
+ *           description: رقم العينة
+ *         specimenCode:
+ *           type: string
+ *           description: كود العينة
+ *         testedItem:
+ *           type: string
+ *           description: العنصر المختبر
+ *         diameterMm:
+ *           type: number
+ *           description: قطر العينة (مم)
+ *         failureMode:
+ *           type: string
+ *           description: مكان الإنهيار
+ *         failureLoadKN:
+ *           type: number
+ *           description: حمل الإنهيار (كيلو نيوتن)
+ *         failureLoadN:
+ *           type: number
+ *           description: حمل الإنهيار (نيوتن)
+ *         areaMm2:
+ *           type: number
+ *           description: مساحة العينة (مم²)
+ *         tensileStrengthMPa:
+ *           type: number
+ *           description: |
+ *             إجهاد الإنهيار / مقاومة التماسك (نيوتن/مم² = MPa)
+ *             Tensile adhesion strength
+ *
+ *     PullOffBatchInput:
+ *       type: object
+ *       required:
+ *         - specimens
+ *       properties:
+ *         specimens:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/PullOffSampleInput'
+ *           minItems: 1
+ *           description: |
+ *             مصفوفة العينات - Array of Pull-Off specimen inputs
+ *             🔴 **مطلوب (Required)**
+ *         client:
+ *           type: string
+ *           description: |
+ *             الجهة طالبة الإختبار - Client
+ *             ⚪ **اختياري (Optional)**
+ *         project:
+ *           type: string
+ *           description: |
+ *             المشروع - Project name
+ *             ⚪ **اختياري (Optional)**
+ *         testingDate:
+ *           type: string
+ *           description: |
+ *             تاريخ إختبار العينات - Testing date
+ *             ⚪ **اختياري (Optional)**
+ *
+ *     PullOffBatchResult:
+ *       type: object
+ *       properties:
+ *         results:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/PullOffSampleResult'
+ *           description: Individual specimen results
+ *         averageStrength:
+ *           type: number
+ *           description: متوسط مقاومة التماسك (MPa) - Average tensile adhesion strength
+ *         minimumStrength:
+ *           type: number
+ *           description: أقل مقاومة (MPa)
+ *         maximumStrength:
+ *           type: number
+ *           description: أعلى مقاومة (MPa)
+ *         standardDeviation:
+ *           type: number
+ *           description: الانحراف المعياري (MPa)
+ *         coefficientOfVariation:
+ *           type: number
+ *           description: معامل الاختلاف (%) - Coefficient of variation
+ *         expandedUncertaintyMPa:
+ *           type: number
+ *           description: قيمة اللايقين بحدود ثقة 95% (MPa) - Expanded uncertainty
+ *         uncertainty:
+ *           type: object
+ *           description: Detailed uncertainty components
  */
-router.get('/reference/ld-factor/:ldRatio', (req: Request, res: Response) => {
-  const ldRatio = parseFloat(req.params.ldRatio);
-  if (isNaN(ldRatio) || ldRatio < 0) {
-    return res.status(400).json({ error: 'Invalid L/D ratio' });
-  }
-  res.json({
-    ldRatio,
-    correctionFactor: calculateLDCorrectionFactor(ldRatio),
-  });
-});
 
 /**
  * @swagger
- * /api/reference/moisture-factor/{condition}:
- *   get:
- *     summary: Get moisture correction factor for specific condition
+ * /api/pulloff/calculate/batch:
+ *   post:
+ *     summary: Calculate multiple Pull-Off test specimens with statistics
  *     description: |
- *       Returns the moisture correction factor for a specific aggregate condition.
- *       
- *       ## الحصول على معامل تصحيح الرطوبة
- *     tags: [Reference]
- *     parameters:
- *       - in: path
- *         name: condition
- *         required: true
- *         schema:
- *           type: string
- *           enum: [dry, natural, saturated]
- *         description: Aggregate moisture condition (حالة رطوبة الركام)
+ *       Calculates tensile adhesion strength for multiple specimens and provides
+ *       statistical summary including average, standard deviation, coefficient of
+ *       variation, and uncertainty calculations.
+ *
+ *       ## حساب مجموعة من عينات اختبار الإقتلاع
+ *
+ *       ### Statistical Analysis:
+ *       - **Average strength**: Mean of all tensile strengths
+ *       - **Standard deviation**: Sample standard deviation
+ *       - **Coefficient of variation**: (SD / Mean) × 100%
+ *       - **Expanded uncertainty**: At 95% confidence level (k=2)
+ *
+ *       ### Uncertainty Calculation:
+ *       Based on GUM (Guide to Expression of Uncertainty in Measurement)
+ *       considering repeatability, calibration, and resolution uncertainties.
+ *
+ *       ### Standard:
+ *       Test performed according to **BS 1881-Part 207-1992**
+ *     tags: [Pull-Off Test - اختبار الإقتلاع]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/PullOffBatchInput'
+ *           examples:
+ *             minimal:
+ *               summary: 🔴 الحد الأدنى (Required fields only)
+ *               description: فقط الحقول المطلوبة - diameterMm و failureLoadKN
+ *               value:
+ *                 specimens:
+ *                   - diameterMm: 55
+ *                     failureLoadKN: 3.63
+ *                   - diameterMm: 55
+ *                     failureLoadKN: 2.87
+ *                   - diameterMm: 49.5
+ *                     failureLoadKN: 3.25
+ *                   - diameterMm: 55
+ *                     failureLoadKN: 3.31
+ *                   - diameterMm: 55
+ *                     failureLoadKN: 4.08
+ *                   - diameterMm: 55
+ *                     failureLoadKN: 4.59
+ *             full:
+ *               summary: ⚪ كامل البيانات (All fields - Excel match)
+ *               description: جميع الحقول مطابقة لملف Excel
+ *               value:
+ *                 client: "IAS"
+ *                 project: "--------"
+ *                 testingDate: "2024-06-15"
+ *                 specimens:
+ *                   - specimenNumber: 1
+ *                     specimenCode: "MTL/IT/2024/37"
+ *                     testedItem: "العنصر المختبر بلاطة خرسانية"
+ *                     diameterMm: 55
+ *                     failureMode: "حدث الإنفصال في البلاطة الخرسانية"
+ *                     failureLoadKN: 3.63
+ *                   - specimenNumber: 2
+ *                     specimenCode: "MTL/IT/2024/38"
+ *                     testedItem: "العنصر المختبر بلاطة خرسانية"
+ *                     diameterMm: 55
+ *                     failureMode: "حدث الإنفصال في البلاطة الخرسانية"
+ *                     failureLoadKN: 2.87
+ *                   - specimenNumber: 3
+ *                     specimenCode: "MTL/IT/2024/39"
+ *                     testedItem: "العنصر المختبر بلاطة خرسانية"
+ *                     diameterMm: 49.5
+ *                     failureMode: "حدث الإنفصال في المادة اللاصقة"
+ *                     failureLoadKN: 3.25
+ *                   - specimenNumber: 4
+ *                     specimenCode: "MTL/IT/2024/40"
+ *                     testedItem: "العنصر المختبر بلاطة خرسانية"
+ *                     diameterMm: 55
+ *                     failureMode: "حدث الإنفصال في البلاطة الخرسانية"
+ *                     failureLoadKN: 3.31
+ *                   - specimenNumber: 5
+ *                     specimenCode: "MTL/IT/2024/41"
+ *                     testedItem: "العنصر المختبر بلاطة خرسانية"
+ *                     diameterMm: 55
+ *                     failureMode: "حدث الإنفصال في البلاطة الخرسانية"
+ *                     failureLoadKN: 4.08
+ *                   - specimenNumber: 6
+ *                     specimenCode: "MTL/IT/2024/42"
+ *                     testedItem: "العنصر المختبر بلاطة خرسانية"
+ *                     diameterMm: 55
+ *                     failureMode: "حدث الإنفصال في البلاطة الخرسانية"
+ *                     failureLoadKN: 4.59
  *     responses:
  *       200:
- *         description: Correction factor for the condition
+ *         description: Successful batch calculation
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 condition:
- *                   type: string
- *                 factor:
- *                   type: number
+ *               $ref: '#/components/schemas/PullOffBatchResult'
  *       400:
- *         description: Invalid condition
+ *         description: Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
-router.get('/reference/moisture-factor/:condition', (req: Request, res: Response) => {
-  const condition = req.params.condition as AggregateCondition;
-  const validConditions: AggregateCondition[] = ['dry', 'natural', 'saturated'];
-  
-  if (!validConditions.includes(condition)) {
-    return res.status(400).json({
-      error: 'Invalid condition',
-      validConditions,
+router.post('/pulloff/calculate/batch', (req: Request, res: Response) => {
+  try {
+    const { specimens } = req.body;
+    if (!Array.isArray(specimens) || specimens.length === 0) {
+      throw new Error('specimens array is required and must not be empty');
+    }
+    const validatedSpecimens = specimens.map(validatePullOffSampleInput);
+    const result = calculatePullOffBatch(validatedSpecimens);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({
+      error: 'Invalid input',
+      details: error instanceof Error ? error.message : 'Unknown error',
     });
   }
-  
-  res.json({
-    condition,
-    factor: getMoistureCorrectionFactor(condition),
-  });
 });
 
-/**
- * @swagger
- * /api/reference/fg-correction:
- *   get:
- *     summary: Get Fg (cutting correction factor) interpolation table
- *     description: |
- *       Returns the complete Fg interpolation table.
- *       
- *       ## جدول معاملات تصحيح القطع (Fg)
- *       
- *       Fg depends on TWO factors:
- *       - **Core Diameter** (50, 75, 100, 125, 150 mm)
- *       - **Core Strength** (15, 20, 25, 30, 35 N/mm² = MPa)
- *       
- *       The API automatically calculates Fg using bilinear interpolation.
- *       For strengths < 15 MPa, the 15 MPa value is used.
- *     tags: [Reference]
- *     responses:
- *       200:
- *         description: Fg interpolation table
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 diameters:
- *                   type: array
- *                   items:
- *                     type: number
- *                   description: Available core diameters (mm)
- *                 strengths:
- *                   type: array
- *                   items:
- *                     type: number
- *                   description: Strength points (MPa)
- *                 table:
- *                   type: object
- *                   description: Fg values indexed by diameter
- */
-router.get('/reference/fg-correction', (_req: Request, res: Response) => {
-  res.json(getFgCorrectionTable());
-});
-
-/**
- * @swagger
- * /api/reference/fg-factor/{diameter}/{strength}:
- *   get:
- *     summary: Calculate Fg for specific diameter and strength
- *     description: |
- *       Calculates the Fg (cutting correction factor) for a specific
- *       core diameter and core strength using bilinear interpolation.
- *       
- *       ## حساب معامل تصحيح القطع
- *     tags: [Reference]
- *     parameters:
- *       - in: path
- *         name: diameter
- *         required: true
- *         schema:
- *           type: number
- *           minimum: 50
- *           maximum: 150
- *         description: Core diameter in mm (القطر)
- *         example: 93
- *       - in: path
- *         name: strength
- *         required: true
- *         schema:
- *           type: number
- *         description: Core strength in MPa (مقاومة الضغط)
- *         example: 10
- *     responses:
- *       200:
- *         description: Calculated Fg factor
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 diameter:
- *                   type: number
- *                 strengthMPa:
- *                   type: number
- *                 fg:
- *                   type: number
- *       400:
- *         description: Invalid parameters
- */
-router.get('/reference/fg-factor/:diameter/:strength', (req: Request, res: Response) => {
-  const diameter = parseFloat(req.params.diameter);
-  const strength = parseFloat(req.params.strength);
-  
-  if (isNaN(diameter) || diameter <= 0) {
-    return res.status(400).json({ error: 'Invalid diameter' });
-  }
-  if (isNaN(strength) || strength < 0) {
-    return res.status(400).json({ error: 'Invalid strength' });
-  }
-  
-  res.json({
-    diameter,
-    strengthMPa: strength,
-    fg: calculateFgCorrectionFactor(diameter, strength),
-  });
-});
-
-/**
- * @swagger
- * /api/health:
- *   get:
- *     summary: Health check endpoint
- *     description: Returns API health status
- *     tags: [Reference]
- *     responses:
- *       200:
- *         description: API is healthy
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 timestamp:
- *                   type: string
- *                   format: date-time
- */
+// Health check endpoint (not documented in Swagger)
 router.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
@@ -765,19 +850,14 @@ function validateCoreSampleInput(input: unknown): CoreSampleInput {
     throw new Error('breakingLoadKN must be a positive number (load in kN)');
   }
 
-  // density is optional but if provided must be positive
-  if (data.density !== undefined && (typeof data.density !== 'number' || data.density <= 0)) {
-    throw new Error('density must be a positive number if provided');
+  // directionFactor is required and must be positive (typically 2.3 or 2.5)
+  if (typeof data.directionFactor !== 'number' || data.directionFactor <= 0) {
+    throw new Error('directionFactor (معامل اتجاه أخذ العينة) is required and must be a positive number (typically 2.3 or 2.5)');
   }
 
   // weightGrams is optional but if provided must be positive
   if (data.weightGrams !== undefined && (typeof data.weightGrams !== 'number' || data.weightGrams <= 0)) {
     throw new Error('weightGrams must be a positive number if provided');
-  }
-
-  // Either density or weightGrams should be provided
-  if (data.density === undefined && data.weightGrams === undefined) {
-    throw new Error('Either density or weightGrams must be provided');
   }
 
   const validConditions: AggregateCondition[] = ['dry', 'natural', 'saturated'];
@@ -815,11 +895,38 @@ function validateCoreSampleInput(input: unknown): CoreSampleInput {
     diameters: data.diameters as [number, number],
     lengths: data.lengths as number[],
     weightGrams: data.weightGrams as number | undefined,
-    density: data.density as number | undefined,
+    directionFactor: data.directionFactor as number,
     breakingLoadKN: data.breakingLoadKN as number,
     failurePattern: data.failurePattern as string | undefined,
     aggregateCondition: data.aggregateCondition as AggregateCondition,
     reinforcement: data.reinforcement as CoreSampleInput['reinforcement'],
+  };
+}
+
+function validatePullOffSampleInput(input: unknown): PullOffSampleInput {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Input must be an object');
+  }
+
+  const data = input as Record<string, unknown>;
+
+  // diameterMm is required and must be positive
+  if (typeof data.diameterMm !== 'number' || data.diameterMm <= 0) {
+    throw new Error('diameterMm must be a positive number');
+  }
+
+  // failureLoadKN is required and must be positive
+  if (typeof data.failureLoadKN !== 'number' || data.failureLoadKN <= 0) {
+    throw new Error('failureLoadKN must be a positive number');
+  }
+
+  return {
+    specimenNumber: data.specimenNumber as number | string | undefined,
+    specimenCode: data.specimenCode as string | undefined,
+    testedItem: data.testedItem as string | undefined,
+    diameterMm: data.diameterMm as number,
+    failureMode: data.failureMode as string | undefined,
+    failureLoadKN: data.failureLoadKN as number,
   };
 }
 

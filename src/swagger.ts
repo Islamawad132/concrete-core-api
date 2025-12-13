@@ -4,101 +4,62 @@ const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Concrete Core Test Calculator API',
+      title: 'معهد بحوث مواد البناء و ضبط الجودة - API',
       version: '1.0.0',
       description: `
-# حاسبة اختبار القلب الخرساني
-## Concrete Core Test Calculator
+# المركز القومي لبحوث الاسكان والبناء
+## Housing and Building National Research Center (HBRC)
 
-This API implements the calculations from the Egyptian National Building Research Center 
-(المركز القومي لبحوث الاسكان و البناء) for testing concrete core samples.
+### معهد بحوث مواد البناء و ضبط الجودة
+### Building Materials Research & Quality Control Institute
 
-## Overview
+---
 
-The concrete core test is a destructive testing method used to evaluate the in-situ 
-compressive strength of hardened concrete. A cylindrical sample (core) is drilled from 
-the structure and tested under compression to determine the equivalent cube strength.
+## الاختبارات المتاحة | Available Tests
 
-## Calculation Process
+### 1. اختبار القلب الخرساني (Concrete Core Test)
+اختبار مقاومة الضغط للخرسانة المتصلدة عن طريق استخراج عينات أسطوانية من المنشأ.
 
-### 1. Core Strength Calculation (مقاومة الضغط للقلب)
+**المعادلة الأساسية:**
 \`\`\`
-Core Strength (kg/cm²) = (Breaking Load × 1000 × 4/π × 100) / diameter²
-\`\`\`
-Where:
-- Breaking Load is in tons (طن)
-- Diameter is in mm (مم)
-
-### 2. Correction Factors Applied
-
-#### a) Moisture Correction Factor (Fm) - عامل تأثير درجة رطوبة القلب
-| Condition | Arabic | Factor |
-|-----------|--------|--------|
-| Dry | جافة | 0.96 |
-| Natural | طبيعية | 1.00 |
-| Saturated | مشبعة | 1.05 |
-
-#### b) Cutting Correction Factor (Fg) - عامل تأثير عملية القطع
-Default value: **1.12** (accounts for damage during core extraction)
-
-#### c) L/D Ratio Correction - تصحيح نسبة الطول للقطر
-When L/D ratio differs from 2.0, a correction is applied:
-
-| L/D Ratio | Correction Factor |
-|-----------|------------------|
-| 1.5 | 1.07 |
-| 2.0 | 1.05 |
-| 2.5 | 1.04 |
-| 3.0 | 1.03 |
-| 3.5 | 1.02 |
-
-Intermediate values are calculated using linear interpolation.
-
-#### d) Reinforcement Correction
-If steel reinforcement bars are present in the core:
-\`\`\`
-Factor = 1 + 1.5 × Σ(bar_diameter × distance_from_end) / (core_diameter × core_length)
+مقاومة المكعب المكافئ = مقاومة القلب × Fm × Fg × (ρ / (1.5 + D/L)) × معامل التسليح
 \`\`\`
 
-### 3. Equivalent Cube Strength (مقاومة الضغط المستنبطة للمكعب)
+**المواصفات المرجعية:**
+- ECP 203-2020 (الكود المصري)
+- BS EN 12504-1
+- ASTM C42
+
+---
+
+### 2. اختبار الإقتلاع (Pull-Off Test) - تماسك طبقتين
+اختبار قوة التماسك بين طبقتين من الخرسانة أو بين طبقة خرسانية ومادة لاصقة.
+
+**المعادلة الأساسية:**
 \`\`\`
-Equivalent Cube Strength = Core Strength × Fm × Fg × (ρ / (1.5 + D/L)) × Reinforcement Factor
+إجهاد التماسك (MPa) = حمل الإنهيار (N) ÷ مساحة القرص (mm²)
+المساحة = π × (القطر ÷ 2)²
 \`\`\`
-Where:
-- ρ = Concrete density (g/cm³)
-- D = Average diameter (mm)
-- L = Average length (mm)
 
-## Standards Reference
+**المواصفة المرجعية:**
+- BS 1881-Part 207-1992
 
-- **ECP 203-2020**: Egyptian Code for Design and Construction of Concrete Structures
-- **BS EN 12504-1**: Testing concrete in structures - Cored specimens
-- **ASTM C42**: Standard Test Method for Obtaining and Testing Drilled Cores
+---
 
-## Units
+## الوحدات | Units
 
-| Property | Unit (SI) | Unit (Arabic) |
-|----------|-----------|---------------|
-| Diameter | mm | مم |
-| Length | mm | مم |
-| Breaking Load | tons | طن |
-| Density | g/cm³ | جم/سم³ |
-| Strength | kg/cm² | كجم/سم² |
-| Strength (SI) | MPa | ميجا باسكال |
-
-## Typical Values
-
-- **Core diameter**: 75-150 mm (standard is 100 mm)
-- **L/D ratio**: Ideally 2.0 (1.0-2.0 acceptable)
-- **Concrete density**: 2.3-2.5 g/cm³ for normal concrete
-- **Expected strength**: Depends on concrete grade (e.g., C25/30, C30/37)
+| الخاصية | الوحدة | Property | Unit |
+|---------|--------|----------|------|
+| القطر | مم | Diameter | mm |
+| الطول | مم | Length | mm |
+| حمل الكسر | كيلو نيوتن | Breaking Load | kN |
+| الكثافة | جم/سم³ | Density | g/cm³ |
+| المقاومة | كجم/سم² | Strength | kg/cm² |
+| المقاومة | ميجا باسكال | Strength | MPa |
       `,
       contact: {
-        name: 'Building Materials & Quality Control Research Institute',
-        email: 'info@hbrc.edu.eg',
-      },
-      license: {
-        name: 'MIT',
+        name: 'معهد بحوث مواد البناء و ضبط الجودة',
+        url: 'https://www.hbrc.edu.eg',
       },
     },
     servers: [
@@ -109,12 +70,12 @@ Where:
     ],
     tags: [
       {
-        name: 'Calculations',
-        description: 'Core strength calculation endpoints',
+        name: 'Core Test - اختبار القلب الخرساني',
+        description: 'حساب مقاومة الضغط للقلب الخرساني | Concrete core strength calculations',
       },
       {
-        name: 'Reference',
-        description: 'Reference tables and correction factors',
+        name: 'Pull-Off Test - اختبار الإقتلاع',
+        description: 'حساب مقاومة التماسك | Tensile adhesion strength calculations (BS 1881-207)',
       },
     ],
   },

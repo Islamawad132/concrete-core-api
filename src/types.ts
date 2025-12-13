@@ -67,11 +67,11 @@ export interface CoreSampleInput {
   /** 9- الطول - Length measurements in mm after capping (2-3 measurements) */
   lengths: number[];
 
-  /** الوزن بالجرام - Weight in grams (used to calculate density) */
+  /** الوزن بالجرام - Weight in grams (used to calculate display density) */
   weightGrams?: number;
 
-  /** 10- كثافة القلب الخرساني (جم/سم3) - Can be provided directly or calculated from weight */
-  density?: number;
+  /** معامل اتجاه أخذ العينة - Direction factor (typically 2.5 horizontal, 2.3 vertical) */
+  directionFactor: number;
 
   /** 11- حمل الكسر (kN) - Breaking load in kN (as in Excel Q19) */
   breakingLoadKN: number;
@@ -159,4 +159,206 @@ export interface MoistureCorrectionTable {
   condition: AggregateCondition;
   conditionArabic: AggregateConditionArabic;
   factor: number;
+}
+
+// =====================================================
+// Pull-Off Test Types (اختبار الإقتلاع - تماسك طبقتين)
+// Based on BS 1881-Part 207-1992
+// =====================================================
+
+/**
+ * Failure mode types for Pull-Off test
+ * مكان/نوع الإنهيار
+ */
+export type PullOffFailureMode =
+  | 'concrete_substrate'     // حدث الإنفصال في البلاطة الخرسانية
+  | 'adhesive_layer'         // حدث الإنفصال في المادة اللاصقة
+  | 'interface'              // حدث الإنفصال في السطح البيني
+  | 'overlay'                // حدث الإنفصال في الطبقة العلوية
+  | 'mixed';                 // إنفصال مختلط
+
+export type PullOffFailureModeArabic =
+  | 'حدث الإنفصال في البلاطة الخرسانية'
+  | 'حدث الإنفصال في المادة اللاصقة'
+  | 'حدث الإنفصال في السطح البيني'
+  | 'حدث الإنفصال في الطبقة العلوية'
+  | 'إنفصال مختلط';
+
+/**
+ * Pull-Off Test Sample Input
+ * نتائج اختبار الإقتلاع
+ */
+export interface PullOffSampleInput {
+  /** رقم العينة - Specimen number */
+  specimenNumber?: number | string;
+
+  /** كود العينة - Specimen code */
+  specimenCode?: string;
+
+  /** العنصر المختبر - Tested item/element */
+  testedItem?: string;
+
+  /** قطر العينة (مم) - Specimen diameter in mm */
+  diameterMm: number;
+
+  /** مكان الإنهيار - Mode/location of failure */
+  failureMode?: PullOffFailureMode | string;
+
+  /** حمل الإنهيار (كيلو نيوتن) - Failure load in kN */
+  failureLoadKN: number;
+}
+
+/**
+ * Pull-Off Test Sample Result
+ * نتائج العينة
+ */
+export interface PullOffSampleResult {
+  /** رقم العينة - Specimen number */
+  specimenNumber?: number | string;
+
+  /** كود العينة - Specimen code */
+  specimenCode?: string;
+
+  /** العنصر المختبر - Tested item */
+  testedItem?: string;
+
+  /** قطر العينة (مم) - Specimen diameter */
+  diameterMm: number;
+
+  /** مكان الإنهيار - Mode of failure */
+  failureMode?: string;
+
+  /** حمل الإنهيار (كيلو نيوتن) - Failure load in kN */
+  failureLoadKN: number;
+
+  /** حمل الإنهيار (نيوتن) - Failure load in N */
+  failureLoadN: number;
+
+  /** مساحة العينة (مم²) - Specimen area */
+  areaMm2: number;
+
+  /** إجهاد الإنهيار / مقاومة التماسك (نيوتن/مم² = MPa) - Tensile adhesion strength */
+  tensileStrengthMPa: number;
+}
+
+/**
+ * Pull-Off Batch Calculation Input
+ */
+export interface PullOffBatchInput {
+  /** Array of specimens */
+  specimens: PullOffSampleInput[];
+
+  /** الجهة طالبة الإختبار - Client */
+  client?: string;
+
+  /** المشروع - Project */
+  project?: string;
+
+  /** الجهة المالكة - Owner */
+  owner?: string;
+
+  /** الجهة المنفذة - Contractor */
+  contractor?: string;
+
+  /** الاستشاري - Consultant */
+  consultant?: string;
+
+  /** بيانات إضافية - Additional info */
+  additionalInfo?: string;
+
+  /** رقم الوارد - Delivery number */
+  deliveryNumber?: string;
+
+  /** تاريخ الوارد - Delivery date */
+  deliveryDate?: string;
+
+  /** كود الجهاز - Apparatus code */
+  apparatusCode?: string | number;
+
+  /** تاريخ إختبار العينات - Testing date */
+  testingDate?: string;
+}
+
+/**
+ * Uncertainty components for Pull-Off test
+ * مكونات اللايقين
+ */
+export interface PullOffUncertainty {
+  /** Standard deviation of diameter measurements */
+  diameterSD: number;
+
+  /** Average diameter */
+  averageDiameter: number;
+
+  /** Standard deviation of load measurements */
+  loadSD: number;
+
+  /** Average load */
+  averageLoad: number;
+
+  /** Average tensile strength */
+  averageStrength: number;
+
+  /** Repeatability uncertainty for diameter (URD) */
+  uncertaintyRepeatabilityDiameter: number;
+
+  /** Calibration uncertainty for diameter */
+  uncertaintyCalibrationDiameter: number;
+
+  /** Resolution uncertainty for diameter */
+  uncertaintyResolutionDiameter: number;
+
+  /** Repeatability uncertainty for load (URP) */
+  uncertaintyRepeatabilityLoad: number;
+
+  /** Calibration uncertainty for load */
+  uncertaintyCalibrationLoad: number;
+
+  /** Resolution uncertainty for load */
+  uncertaintyResolutionLoad: number;
+
+  /** Combined Type A uncertainty */
+  uncertaintyTypeA: number;
+
+  /** Combined Type B uncertainty */
+  uncertaintyTypeB: number;
+
+  /** Combined standard uncertainty */
+  combinedUncertainty: number;
+
+  /** Expanded uncertainty at 95% confidence (k=2) */
+  expandedUncertainty: number;
+}
+
+/**
+ * Pull-Off Batch Calculation Result
+ * نتائج حساب مجموعة عينات الإقتلاع
+ */
+export interface PullOffBatchResult {
+  /** Individual specimen results */
+  results: PullOffSampleResult[];
+
+  /** متوسط مقاومة التماسك (MPa) - Average tensile adhesion strength */
+  averageStrength: number;
+
+  /** متوسط الحمل (KN) - Average load in kN */
+  averageLoadKN: number;
+
+  /** أقل مقاومة (MPa) - Minimum strength */
+  minimumStrength: number;
+
+  /** أعلى مقاومة (MPa) - Maximum strength */
+  maximumStrength: number;
+
+  /** الانحراف المعياري (MPa) - Standard deviation of strengths */
+  standardDeviation: number;
+
+  /** معامل الاختلاف (%) - Coefficient of variation (from loads, matching Excel) */
+  coefficientOfVariation: number;
+
+  /** حسابات اللايقين - Uncertainty calculations */
+  uncertainty: PullOffUncertainty;
+
+  /** قيمة اللايقين بحدود ثقة 95% (MPa) - Expanded uncertainty at 95% confidence */
+  expandedUncertaintyMPa: number;
 }

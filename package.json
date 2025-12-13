@@ -9,7 +9,13 @@
     "start": "node dist/index.js",
     "test": "ts-node src/test.ts"
   },
-  "keywords": ["concrete", "core-test", "construction", "engineering", "calculator"],
+  "keywords": [
+    "concrete",
+    "core-test",
+    "construction",
+    "engineering",
+    "calculator"
+  ],
   "author": "Building Materials Research Institute",
   "license": "MIT",
   "type": "commonjs",
@@ -17,7 +23,8 @@
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
