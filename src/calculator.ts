@@ -20,6 +20,12 @@ import {
   PullOffSampleResult,
   PullOffBatchResult,
   PullOffUncertainty,
+  SchmidtHammerElementInput,
+  SchmidtHammerElementResult,
+  SchmidtHammerBatchInput,
+  SchmidtHammerBatchResult,
+  SchmidtHammerUncertainty,
+  SchmidtHammerAnvilInput,
 } from './types';
 
 /**
@@ -694,5 +700,255 @@ export function calculatePullOffBatch(specimens: PullOffSampleInput[]): PullOffB
     coefficientOfVariation,
     uncertainty,
     expandedUncertaintyMPa: uncertainty.expandedUncertainty,
+  };
+}
+
+// =====================================================
+// Schmidt Hammer Test Calculator (اختبار مطرقة الإرتداد)
+// Based on EN 12504-2-2021
+// =====================================================
+
+/**
+ * Degrees of freedom table for t-distribution (k factor at 95% confidence)
+ * Used for expanded uncertainty calculation
+ */
+const DOF_K_TABLE: Record<number, number> = {
+  1: 13.97,
+  2: 4.53,
+  3: 3.31,
+  4: 2.87,
+  5: 2.65,
+  6: 2.52,
+  7: 2.43,
+  8: 2.37,
+  12: 2.23,
+  14: 2.2,
+  16: 2.17,
+  18: 2.5,
+  20: 2.13,
+  25: 2.11,
+  30: 2.09,
+  35: 2.07,
+  40: 2.06,
+  45: 2.06,
+  50: 2.05,
+  60: 2.04,
+  80: 2.03,
+  100: 2.02,
+  Infinity: 2,
+};
+
+/**
+ * Gets the k factor (coverage factor) based on degrees of freedom
+ * Used for expanded uncertainty at 95% confidence level
+ *
+ * @param dof - Degrees of freedom
+ * @returns Coverage factor k
+ */
+function getKFactor(dof: number): number {
+  // Get numeric keys and sort them
+  const numericDofs = Object.keys(DOF_K_TABLE)
+    .filter(k => k !== 'Infinity')
+    .map(k => parseInt(k))
+    .sort((a, b) => a - b);
+
+  // Find the largest DOF that is <= the given dof
+  for (let i = numericDofs.length - 1; i >= 0; i--) {
+    if (dof >= numericDofs[i]) {
+      return DOF_K_TABLE[numericDofs[i]];
+    }
+  }
+
+  return 2; // Default k=2 for large DOF (Infinity)
+}
+
+/**
+ * Calculates median of an array of numbers
+ *
+ * @param values - Array of numbers
+ * @returns Median value (rounded to integer as per Excel)
+ */
+function calculateMedian(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+}
+
+/**
+ * Calculates the RSA (Rebound Surface Anvil) correction factor
+ * RSA = 80 / Median(anvil readings)
+ *
+ * From Excel Anvil sheet: G5 = 80/D5
+ * where D5 = MEDIAN(all anvil readings before and after)
+ *
+ * @param anvilInput - Anvil calibration readings
+ * @returns RSA correction factor
+ */
+export function calculateAnvilCorrectionFactor(anvilInput: SchmidtHammerAnvilInput): { rsa: number; median: number } {
+  // Combine all anvil readings (before and after)
+  const allReadings = [...anvilInput.readingsBefore, ...anvilInput.readingsAfter];
+
+  // Calculate median
+  const median = calculateMedian(allReadings);
+
+  // RSA = 80 / Median
+  const rsa = 80 / median;
+
+  return { rsa, median };
+}
+
+/**
+ * Calculates uncertainty for a single Schmidt Hammer test element
+ * Based on Excel sheets 1-6 calculations
+ *
+ * Uncertainty components:
+ * 1. Repeatability uncertainty: URP = sqrt(SD² / n)
+ * 2. Resolution uncertainty: U = (resolution/2) / sqrt(3) = 1 / sqrt(3)
+ * 3. Calibration uncertainty: 0.0266 / 2
+ *
+ * @param correctedReadings - Array of RSA-corrected readings
+ * @returns Uncertainty components
+ */
+export function calculateSchmidtHammerUncertainty(correctedReadings: number[]): SchmidtHammerUncertainty {
+  const n = correctedReadings.length; // Should be 15
+
+  // Calculate standard deviation of corrected readings
+  const mean = correctedReadings.reduce((a, b) => a + b, 0) / n;
+  const squaredDiffs = correctedReadings.map(v => Math.pow(v - mean, 2));
+  const variance = squaredDiffs.reduce((a, b) => a + b, 0) / (n - 1);
+  const sd = Math.sqrt(variance);
+
+  // Repeatability uncertainty: URP = sqrt(SD² / n)
+  // From Excel: I5 = (H5^2/(15))^0.5, K5 = I5/1 (divisor=1), M5 = K5^2 * L5^2 (Ci=1)
+  const repeatabilityUncertainty = Math.sqrt(Math.pow(sd, 2) / n);
+
+  // Resolution uncertainty: resolution = 2, so half = 1
+  // U = 1 / sqrt(3)
+  // From Excel: B28 = 2/2 = 1, K28 = 1/sqrt(3), M28 = K28^2 * 1^2
+  const resolutionUncertainty = 1 / Math.sqrt(3);
+
+  // Calibration uncertainty: 0.0266 / 2
+  // From Excel: B38 = 0.0266, K38 = 0.0266/2
+  const calibrationUncertainty = 0.0266 / 2;
+
+  // Combined uncertainty squared
+  // M45 = M5 + M28 + M38
+  const combinedUncertaintySquared =
+    Math.pow(repeatabilityUncertainty, 2) +
+    Math.pow(resolutionUncertainty, 2) +
+    Math.pow(calibrationUncertainty, 2);
+
+  const combinedUncertainty = Math.sqrt(combinedUncertaintySquared);
+
+  // Degrees of freedom calculation (Welch-Satterthwaite)
+  // From Excel: I46 = ROUND(M46^4/((N5^4)/14),0)
+  // where N5 = sqrt(M5) = repeatability uncertainty
+  const effectiveDof = Math.pow(combinedUncertainty, 4) /
+    (Math.pow(repeatabilityUncertainty, 4) / (n - 1));
+  const dof = Math.round(effectiveDof);
+
+  // Get k factor from table
+  // For more than 2 points, Excel uses k=2
+  const coverageFactor = 2; // As specified in Excel: "For more than two points take K=2"
+
+  // Expanded uncertainty = k × UComp
+  const expandedUncertainty = coverageFactor * combinedUncertainty;
+
+  return {
+    repeatabilityUncertainty,
+    resolutionUncertainty,
+    calibrationUncertainty,
+    combinedUncertainty,
+    coverageFactor,
+    expandedUncertainty,
+  };
+}
+
+/**
+ * Calculates a single Schmidt Hammer test element result
+ *
+ * @param element - Element input data
+ * @param rsa - RSA correction factor from anvil calibration
+ * @returns Element result
+ */
+export function calculateSchmidtHammerElement(
+  element: SchmidtHammerElementInput,
+  rsa: number
+): SchmidtHammerElementResult {
+  // Apply RSA correction to all readings
+  const correctedReadings = element.readings.map(r => r * rsa);
+
+  // Calculate median of corrected readings (rounded to integer as per Excel)
+  const medianRebound = Math.round(calculateMedian(correctedReadings));
+
+  // Calculate acceptance limits
+  const lowerLimit = medianRebound * 0.75;
+  const upperLimit = medianRebound * 1.25;
+
+  // Count valid readings within acceptance limits
+  const validReadingsCount = correctedReadings.filter(
+    r => r >= lowerLimit && r <= upperLimit
+  ).length;
+
+  // Calculate standard deviation
+  const n = correctedReadings.length;
+  const mean = correctedReadings.reduce((a, b) => a + b, 0) / n;
+  const squaredDiffs = correctedReadings.map(v => Math.pow(v - mean, 2));
+  const variance = squaredDiffs.reduce((a, b) => a + b, 0) / (n - 1);
+  const standardDeviation = Math.sqrt(variance);
+
+  // Calculate uncertainty
+  const uncertainty = calculateSchmidtHammerUncertainty(correctedReadings);
+
+  // Approximate compressive strength (indicative only)
+  // This is a rough estimation - actual strength depends on many factors
+  // Using a simplified correlation: ~10-12 × median rebound for normal concrete
+  // Note: According to ECP 203-2020, this is only indicative and should not be used
+  // as the actual strength without correlation with core tests
+  const approximateStrengthKgCm2 = medianRebound * 11.5; // Rough estimate
+
+  return {
+    elementName: element.elementName,
+    elementCode: element.elementCode,
+    hammerDirection: element.hammerDirection,
+    originalReadings: element.readings,
+    correctedReadings,
+    medianRebound,
+    lowerLimit,
+    upperLimit,
+    validReadingsCount,
+    standardDeviation,
+    uncertainty,
+    expandedUncertainty: uncertainty.expandedUncertainty,
+    approximateStrengthKgCm2,
+    notes: element.notes,
+  };
+}
+
+/**
+ * Calculates batch of Schmidt Hammer test elements
+ *
+ * @param input - Batch input with elements and anvil calibration
+ * @returns Batch calculation results
+ */
+export function calculateSchmidtHammerBatch(input: SchmidtHammerBatchInput): SchmidtHammerBatchResult {
+  // Calculate RSA correction factor from anvil readings
+  const { rsa, median: anvilMedian } = calculateAnvilCorrectionFactor(input.anvilCalibration);
+
+  // Calculate results for each element
+  const results = input.elements.map(element =>
+    calculateSchmidtHammerElement(element, rsa)
+  );
+
+  return {
+    results,
+    correctionFactorRSA: rsa,
+    anvilMedian,
+    hammerCode: input.hammerCode,
+    testingDate: input.testingDate,
   };
 }

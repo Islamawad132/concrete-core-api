@@ -2,8 +2,9 @@ import { Router, Request, Response } from 'express';
 import {
   calculateBatch,
   calculatePullOffBatch,
+  calculateSchmidtHammerBatch,
 } from './calculator';
-import { CoreSampleInput, AggregateCondition, PullOffSampleInput } from './types';
+import { CoreSampleInput, AggregateCondition, PullOffSampleInput, SchmidtHammerBatchInput, SchmidtHammerElementInput, SchmidtHammerAnvilInput } from './types';
 
 const router = Router();
 
@@ -927,6 +928,405 @@ function validatePullOffSampleInput(input: unknown): PullOffSampleInput {
     diameterMm: data.diameterMm as number,
     failureMode: data.failureMode as string | undefined,
     failureLoadKN: data.failureLoadKN as number,
+  };
+}
+
+// =====================================================
+// Schmidt Hammer Test Endpoints (اختبار مطرقة الإرتداد)
+// Based on EN 12504-2-2021
+// =====================================================
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     SchmidtHammerElementInput:
+ *       type: object
+ *       required:
+ *         - readings
+ *       properties:
+ *         elementName:
+ *           type: string
+ *           description: |
+ *             العنصر الإنشائي المختبر - Structural element name
+ *             ⚪ **اختياري (Optional)**
+ *           example: "بلاطة خرسانية"
+ *         elementCode:
+ *           type: string
+ *           description: |
+ *             كود العنصر - Element code
+ *             ⚪ **اختياري (Optional)**
+ *           example: "MTL/IT/S/2024/84"
+ *         hammerDirection:
+ *           type: string
+ *           description: |
+ *             اتجاه المطرقة - Hammer direction/angle
+ *             ⚪ **اختياري (Optional)**
+ *             - horizontal: أفقي
+ *             - downward: لأسفل ↓
+ *             - upward: لأعلى ↑
+ *           example: "downward"
+ *         readings:
+ *           type: array
+ *           items:
+ *             type: number
+ *           minItems: 9
+ *           maxItems: 15
+ *           description: |
+ *             قراءات المطرقة (9-15 قراءة) - Rebound readings
+ *             🔴 **مطلوب (Required)**
+ *             يجب أن تكون من 9 إلى 15 قراءة
+ *           example: [42, 42, 42, 42, 40, 42, 43, 43, 41, 44, 42, 42, 43, 41, 40]
+ *         notes:
+ *           type: string
+ *           description: |
+ *             ملاحظات - Notes
+ *             ⚪ **اختياري (Optional)**
+ *
+ *     SchmidtHammerAnvilInput:
+ *       type: object
+ *       required:
+ *         - readingsBefore
+ *         - readingsAfter
+ *       properties:
+ *         readingsBefore:
+ *           type: array
+ *           items:
+ *             type: number
+ *           minItems: 5
+ *           description: |
+ *             قراءات سندان المعايرة قبل الإختبار - Anvil readings before test
+ *             🔴 **مطلوب (Required)**
+ *           example: [81, 83, 84, 84, 83]
+ *         readingsAfter:
+ *           type: array
+ *           items:
+ *             type: number
+ *           minItems: 5
+ *           description: |
+ *             قراءات سندان المعايرة بعد الإختبار - Anvil readings after test
+ *             🔴 **مطلوب (Required)**
+ *           example: [80, 80, 82, 82, 81]
+ *
+ *     SchmidtHammerBatchInput:
+ *       type: object
+ *       required:
+ *         - elements
+ *         - anvilCalibration
+ *       properties:
+ *         elements:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/SchmidtHammerElementInput'
+ *           minItems: 1
+ *           description: |
+ *             مصفوفة العناصر المختبرة - Array of tested elements
+ *             🔴 **مطلوب (Required)**
+ *         anvilCalibration:
+ *           $ref: '#/components/schemas/SchmidtHammerAnvilInput'
+ *           description: |
+ *             قراءات سندان المعايرة - Anvil calibration readings
+ *             🔴 **مطلوب (Required)**
+ *         hammerCode:
+ *           type: string
+ *           description: |
+ *             كود المطرقة - Hammer code
+ *             ⚪ **اختياري (Optional)**
+ *           example: "4012"
+ *         client:
+ *           type: string
+ *           description: |
+ *             الجهة طالبة الإختبار - Client
+ *             ⚪ **اختياري (Optional)**
+ *         project:
+ *           type: string
+ *           description: |
+ *             المشروع - Project
+ *             ⚪ **اختياري (Optional)**
+ *         testingDate:
+ *           type: string
+ *           description: |
+ *             تاريخ إجراء الإختبار - Testing date
+ *             ⚪ **اختياري (Optional)**
+ *         ambientTemperature:
+ *           type: string
+ *           description: |
+ *             درجة حرارة الجو - Ambient temperature
+ *             ⚪ **اختياري (Optional)**
+ *           example: "29ﹾ م"
+ *
+ *     SchmidtHammerElementResult:
+ *       type: object
+ *       properties:
+ *         elementName:
+ *           type: string
+ *           description: العنصر الإنشائي المختبر
+ *         elementCode:
+ *           type: string
+ *           description: كود العنصر
+ *         hammerDirection:
+ *           type: string
+ *           description: اتجاه المطرقة
+ *         originalReadings:
+ *           type: array
+ *           items:
+ *             type: number
+ *           description: القراءات الأصلية
+ *         correctedReadings:
+ *           type: array
+ *           items:
+ *             type: number
+ *           description: القراءات المصححة (بعد تطبيق RSA)
+ *         medianRebound:
+ *           type: number
+ *           description: الوسيط لقراءات رقم الإرتداد - Median of corrected readings
+ *         lowerLimit:
+ *           type: number
+ *           description: الحد الأدنى للقبول (0.75 × الوسيط)
+ *         upperLimit:
+ *           type: number
+ *           description: الحد الأعلى للقبول (1.25 × الوسيط)
+ *         validReadingsCount:
+ *           type: number
+ *           description: عدد القراءات المقبولة
+ *         standardDeviation:
+ *           type: number
+ *           description: الانحراف المعياري
+ *         expandedUncertainty:
+ *           type: number
+ *           description: قيمة اللايقين بحدود ثقة 95% (±)
+ *         approximateStrengthKgCm2:
+ *           type: number
+ *           description: |
+ *             مقاومة الضغط التقريبية (كجم/سم²) - Approximate compressive strength
+ *             ⚠️ للاسترشاد فقط - Indicative only
+ *
+ *     SchmidtHammerBatchResult:
+ *       type: object
+ *       properties:
+ *         results:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/SchmidtHammerElementResult'
+ *           description: Individual element results
+ *         correctionFactorRSA:
+ *           type: number
+ *           description: معامل التصحيح (RSA) - Correction factor from anvil
+ *         anvilMedian:
+ *           type: number
+ *           description: وسيط قراءات سندان المعايرة
+ *         hammerCode:
+ *           type: string
+ *           description: كود المطرقة
+ *         testingDate:
+ *           type: string
+ *           description: تاريخ الإختبار
+ */
+
+/**
+ * @swagger
+ * /api/schmidt/calculate/batch:
+ *   post:
+ *     summary: Calculate Schmidt Hammer test results with uncertainty
+ *     description: |
+ *       ## اختبار صلادة السطح بإستخدام مطرقة الإرتداد
+ *
+ *       Calculates rebound number and approximate compressive strength for
+ *       multiple test elements using Schmidt Hammer (Rebound Hammer).
+ *
+ *       ### الحقول المطلوبة | Required Fields:
+ *       | الحقل | الوصف |
+ *       |-------|-------|
+ *       | 🔴 elements | العناصر المختبرة (مع قراءات المطرقة) |
+ *       | 🔴 anvilCalibration | قراءات سندان المعايرة (قبل وبعد) |
+ *
+ *       ### Calculation Method:
+ *       1. **RSA Correction Factor** = 80 / Median(anvil readings)
+ *       2. **Corrected readings** = Raw reading × RSA
+ *       3. **Median** = Median of corrected readings
+ *       4. **Valid range**: 0.75 × Median to 1.25 × Median
+ *
+ *       ### Uncertainty Calculation:
+ *       - Repeatability: √(SD² / n)
+ *       - Resolution: 1 / √3
+ *       - Calibration: 0.0266 / 2
+ *       - Expanded (k=2): 2 × √(sum of squares)
+ *
+ *       ### ملاحظات هامة:
+ *       - الاختبار يعطي نتائج استرشادية لمقاومة الضغط
+ *       - لا يعتد بها طبقا لبند (8-12) بالكود المصرى رقم 203 لسنة 2020
+ *       - يمكن الإسترشاد بها للمقارنات أو عند مقارنتها بنتائج القلب الخرساني
+ *
+ *       ### Standard:
+ *       Test performed according to **EN 12504-2-2021**
+ *     tags: [Schmidt Hammer - اختبار مطرقة الإرتداد]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/SchmidtHammerBatchInput'
+ *           examples:
+ *             minimal:
+ *               summary: 🔴 الحد الأدنى (Required fields only)
+ *               description: فقط الحقول المطلوبة - elements و anvilCalibration
+ *               value:
+ *                 elements:
+ *                   - readings: [42, 42, 42, 42, 40, 42, 43, 43, 41, 44, 42, 42, 43, 41, 40]
+ *                 anvilCalibration:
+ *                   readingsBefore: [81, 83, 84, 84, 83]
+ *                   readingsAfter: [80, 80, 82, 82, 81]
+ *             full:
+ *               summary: ⚪ كامل البيانات (All fields - Excel match)
+ *               description: جميع الحقول مطابقة لملف Excel
+ *               value:
+ *                 hammerCode: "4012"
+ *                 client: "IAS"
+ *                 project: "--------"
+ *                 testingDate: "2024-06-04"
+ *                 ambientTemperature: "29ﹾ م"
+ *                 elements:
+ *                   - elementName: "1- بلاطة خرسانية"
+ *                     elementCode: "MTL/IT/S/2024/84"
+ *                     hammerDirection: "downward"
+ *                     readings: [42, 42, 42, 42, 40, 42, 43, 43, 41, 44, 42, 42, 43, 41, 40]
+ *                 anvilCalibration:
+ *                   readingsBefore: [81, 83, 84, 84, 83]
+ *                   readingsAfter: [83, 80, 79, 80, 82]
+ *             multipleElements:
+ *               summary: 📊 عناصر متعددة (Multiple elements)
+ *               description: اختبار عدة عناصر إنشائية
+ *               value:
+ *                 hammerCode: "4012"
+ *                 testingDate: "2024-06-04"
+ *                 elements:
+ *                   - elementName: "عمود C1"
+ *                     elementCode: "COL-01"
+ *                     hammerDirection: "horizontal"
+ *                     readings: [38, 40, 39, 41, 40, 38, 39, 40, 41, 39, 40, 38, 39, 40, 41]
+ *                   - elementName: "عمود C2"
+ *                     elementCode: "COL-02"
+ *                     hammerDirection: "horizontal"
+ *                     readings: [45, 44, 46, 45, 44, 45, 46, 44, 45, 46, 45, 44, 45, 46, 45]
+ *                   - elementName: "كمرة B1"
+ *                     elementCode: "BEAM-01"
+ *                     hammerDirection: "upward"
+ *                     readings: [36, 35, 37, 36, 35, 36, 37, 35, 36, 37, 36, 35, 36, 37, 36]
+ *                 anvilCalibration:
+ *                   readingsBefore: [80, 81, 80, 82, 81]
+ *                   readingsAfter: [80, 80, 81, 81, 80]
+ *     responses:
+ *       200:
+ *         description: Successful batch calculation
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SchmidtHammerBatchResult'
+ *       400:
+ *         description: Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/schmidt/calculate/batch', (req: Request, res: Response) => {
+  try {
+    const input = validateSchmidtHammerBatchInput(req.body);
+    const result = calculateSchmidtHammerBatch(input);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({
+      error: 'Invalid input',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+function validateSchmidtHammerElementInput(input: unknown): SchmidtHammerElementInput {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Element input must be an object');
+  }
+
+  const data = input as Record<string, unknown>;
+
+  // readings is required and must be an array of 9-15 numbers
+  if (!Array.isArray(data.readings) || data.readings.length < 9 || data.readings.length > 15) {
+    throw new Error('readings must be an array of 9-15 numbers');
+  }
+  if (!data.readings.every((r: unknown) => typeof r === 'number' && r > 0)) {
+    throw new Error('All reading values must be positive numbers');
+  }
+
+  return {
+    elementName: data.elementName as string | undefined,
+    elementCode: data.elementCode as string | undefined,
+    hammerDirection: data.hammerDirection as string | undefined,
+    readings: data.readings as number[],
+    notes: data.notes as string | undefined,
+  };
+}
+
+function validateSchmidtHammerAnvilInput(input: unknown): SchmidtHammerAnvilInput {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Anvil calibration input must be an object');
+  }
+
+  const data = input as Record<string, unknown>;
+
+  // readingsBefore is required
+  if (!Array.isArray(data.readingsBefore) || data.readingsBefore.length < 5) {
+    throw new Error('readingsBefore must be an array of at least 5 numbers');
+  }
+  if (!data.readingsBefore.every((r: unknown) => typeof r === 'number' && r > 0)) {
+    throw new Error('All readingsBefore values must be positive numbers');
+  }
+
+  // readingsAfter is required
+  if (!Array.isArray(data.readingsAfter) || data.readingsAfter.length < 5) {
+    throw new Error('readingsAfter must be an array of at least 5 numbers');
+  }
+  if (!data.readingsAfter.every((r: unknown) => typeof r === 'number' && r > 0)) {
+    throw new Error('All readingsAfter values must be positive numbers');
+  }
+
+  return {
+    readingsBefore: data.readingsBefore as number[],
+    readingsAfter: data.readingsAfter as number[],
+  };
+}
+
+function validateSchmidtHammerBatchInput(input: unknown): SchmidtHammerBatchInput {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Input must be an object');
+  }
+
+  const data = input as Record<string, unknown>;
+
+  // elements is required
+  if (!Array.isArray(data.elements) || data.elements.length === 0) {
+    throw new Error('elements array is required and must not be empty');
+  }
+  const elements = data.elements.map(validateSchmidtHammerElementInput);
+
+  // anvilCalibration is required
+  if (!data.anvilCalibration) {
+    throw new Error('anvilCalibration is required');
+  }
+  const anvilCalibration = validateSchmidtHammerAnvilInput(data.anvilCalibration);
+
+  return {
+    elements,
+    anvilCalibration,
+    hammerCode: data.hammerCode as string | number | undefined,
+    client: data.client as string | undefined,
+    project: data.project as string | undefined,
+    owner: data.owner as string | undefined,
+    contractor: data.contractor as string | undefined,
+    consultant: data.consultant as string | undefined,
+    additionalInfo: data.additionalInfo as string | undefined,
+    testingDate: data.testingDate as string | undefined,
+    ambientTemperature: data.ambientTemperature as string | undefined,
+    testingTime: data.testingTime as string | undefined,
   };
 }
 

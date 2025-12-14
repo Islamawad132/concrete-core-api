@@ -77,6 +77,10 @@ const options: swaggerJsdoc.Options = {
         name: 'Pull-Off Test - اختبار الإقتلاع',
         description: 'حساب مقاومة التماسك | Tensile adhesion strength calculations (BS 1881-207)',
       },
+      {
+        name: 'Schmidt Hammer - اختبار مطرقة الإرتداد',
+        description: 'اختبار صلادة السطح | Surface hardness test using rebound hammer (EN 12504-2-2021)',
+      },
     ],
   },
   apis: ['./src/routes.ts'],

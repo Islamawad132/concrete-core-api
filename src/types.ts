@@ -362,3 +362,183 @@ export interface PullOffBatchResult {
   /** قيمة اللايقين بحدود ثقة 95% (MPa) - Expanded uncertainty at 95% confidence */
   expandedUncertaintyMPa: number;
 }
+
+// =====================================================
+// Schmidt Hammer Test Types (اختبار مطرقة الإرتداد)
+// Based on EN 12504-2-2021
+// =====================================================
+
+/**
+ * Hammer direction/angle for Schmidt Hammer test
+ * اتجاه المطرقة
+ */
+export type HammerDirection = 'horizontal' | 'downward' | 'upward';
+export type HammerDirectionArabic = 'أفقي' | 'لأسفل ↓' | 'لأعلى ↑';
+
+/**
+ * Schmidt Hammer Test Element Input
+ * بيانات العنصر الإنشائي المختبر
+ */
+export interface SchmidtHammerElementInput {
+  /** العنصر الإنشائي المختبر - Structural element being tested */
+  elementName?: string;
+
+  /** كود العنصر - Element code */
+  elementCode?: string;
+
+  /** اتجاه المطرقة - Hammer direction/angle */
+  hammerDirection?: HammerDirection | string;
+
+  /** قراءات المطرقة (15 قراءة) - Rebound readings (15 readings) */
+  readings: number[];
+
+  /** ملاحظات - Notes */
+  notes?: string;
+}
+
+/**
+ * Schmidt Hammer Anvil Calibration Input
+ * قراءات سندان المعايرة
+ */
+export interface SchmidtHammerAnvilInput {
+  /** قراءات سندان المعايرة قبل الإختبار - Anvil readings before test */
+  readingsBefore: number[];
+
+  /** قراءات سندان المعايرة بعد الإختبار - Anvil readings after test */
+  readingsAfter: number[];
+}
+
+/**
+ * Schmidt Hammer Batch Input
+ * مدخلات اختبار مطرقة الإرتداد
+ */
+export interface SchmidtHammerBatchInput {
+  /** Array of test elements */
+  elements: SchmidtHammerElementInput[];
+
+  /** قراءات سندان المعايرة - Anvil calibration readings */
+  anvilCalibration: SchmidtHammerAnvilInput;
+
+  /** كود المطرقة - Hammer code */
+  hammerCode?: string | number;
+
+  /** الجهة طالبة الإختبار - Client */
+  client?: string;
+
+  /** المشروع - Project */
+  project?: string;
+
+  /** الجهة المالكة - Owner */
+  owner?: string;
+
+  /** الجهة المنفذة - Contractor */
+  contractor?: string;
+
+  /** الاستشاري - Consultant */
+  consultant?: string;
+
+  /** بيانات إضافية - Additional info */
+  additionalInfo?: string;
+
+  /** تاريخ إجراء الإختبار - Testing date */
+  testingDate?: string;
+
+  /** درجة حرارة الجو - Ambient temperature */
+  ambientTemperature?: string;
+
+  /** توقيت إجراء الإختبار - Testing time */
+  testingTime?: string;
+}
+
+/**
+ * Schmidt Hammer Uncertainty Components
+ * مكونات اللايقين
+ */
+export interface SchmidtHammerUncertainty {
+  /** Repeatability uncertainty (URP) */
+  repeatabilityUncertainty: number;
+
+  /** Resolution uncertainty */
+  resolutionUncertainty: number;
+
+  /** Calibration uncertainty */
+  calibrationUncertainty: number;
+
+  /** Combined uncertainty (UComp) */
+  combinedUncertainty: number;
+
+  /** Coverage factor (k) */
+  coverageFactor: number;
+
+  /** Expanded uncertainty at 95% confidence */
+  expandedUncertainty: number;
+}
+
+/**
+ * Schmidt Hammer Test Element Result
+ * نتائج العنصر الإنشائي المختبر
+ */
+export interface SchmidtHammerElementResult {
+  /** العنصر الإنشائي المختبر - Structural element name */
+  elementName?: string;
+
+  /** كود العنصر - Element code */
+  elementCode?: string;
+
+  /** اتجاه المطرقة - Hammer direction */
+  hammerDirection?: string;
+
+  /** القراءات الأصلية - Original readings */
+  originalReadings: number[];
+
+  /** القراءات المصححة (بعد تطبيق RSA) - Corrected readings */
+  correctedReadings: number[];
+
+  /** الوسيط لقراءات رقم الإرتداد - Median of corrected rebound readings */
+  medianRebound: number;
+
+  /** الحد الأدنى للقبول (0.75 × الوسيط) - Lower acceptance limit */
+  lowerLimit: number;
+
+  /** الحد الأعلى للقبول (1.25 × الوسيط) - Upper acceptance limit */
+  upperLimit: number;
+
+  /** عدد القراءات المقبولة - Number of valid readings */
+  validReadingsCount: number;
+
+  /** الانحراف المعياري - Standard deviation */
+  standardDeviation: number;
+
+  /** حسابات اللايقين - Uncertainty calculations */
+  uncertainty: SchmidtHammerUncertainty;
+
+  /** قيمة اللايقين بحدود ثقة 95% (±) - Expanded uncertainty at 95% confidence */
+  expandedUncertainty: number;
+
+  /** مقاومة الضغط التقريبية (كجم/سم²) - Approximate compressive strength (indicative only) */
+  approximateStrengthKgCm2?: number;
+
+  /** ملاحظات - Notes */
+  notes?: string;
+}
+
+/**
+ * Schmidt Hammer Batch Result
+ * نتائج اختبار مطرقة الإرتداد
+ */
+export interface SchmidtHammerBatchResult {
+  /** Individual element results */
+  results: SchmidtHammerElementResult[];
+
+  /** معامل التصحيح (RSA) - Correction factor from anvil */
+  correctionFactorRSA: number;
+
+  /** وسيط قراءات سندان المعايرة - Median of anvil readings */
+  anvilMedian: number;
+
+  /** كود المطرقة - Hammer code */
+  hammerCode?: string | number;
+
+  /** تاريخ الإختبار - Testing date */
+  testingDate?: string;
+}
