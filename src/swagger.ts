@@ -13,6 +13,8 @@ const options: swaggerJsdoc.Options = {
 ### معهد بحوث مواد البناء و ضبط الجودة
 ### Building Materials Research & Quality Control Institute
 
+#### معمل الخرسانة | Concrete Laboratory
+
 ---
 
 ## الاختبارات المتاحة | Available Tests
